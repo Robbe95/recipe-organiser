@@ -3,11 +3,14 @@
 import type { DropdownMenuItem } from '@nuxt/ui'
 
 import { useSignOutMutation } from '~/features/auth/api/signOut.mutation'
+import KitchenSettingsModal from '~/features/settings/components/KitchenSettingsModal.vue'
 import { authClient } from '~/lib/authClient'
 
 const open = ref(true)
 const signOutMutation = useSignOutMutation()
 const session = authClient.useSession()
+const overlay = useOverlay()
+const kitchenSettingsModal = overlay.create(KitchenSettingsModal)
 
 const user = computed(() => ({
   name: session.value.data?.user.name || 'Kitchen account',
@@ -22,6 +25,11 @@ const navigation = [
     icon: 'i-lucide-notebook-tabs',
     label: 'My recipes',
     to: '/dashboard',
+  },
+  {
+    icon: 'i-lucide-shopping-basket',
+    label: 'Ingredients',
+    to: '/ingredients',
   },
   {
     disabled: true,
@@ -40,6 +48,7 @@ const userItems = computed<DropdownMenuItem[][]>(() => [
     {
       icon: 'i-lucide-settings-2',
       label: 'Kitchen settings',
+      onSelect: openKitchenSettings,
     },
   ],
   [
@@ -50,6 +59,10 @@ const userItems = computed<DropdownMenuItem[][]>(() => [
     },
   ],
 ])
+
+function openKitchenSettings() {
+  void kitchenSettingsModal.open()
+}
 
 async function signOut() {
   await signOutMutation.mutateAsync()

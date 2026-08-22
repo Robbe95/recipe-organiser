@@ -1,5 +1,123 @@
-import { pgSchema } from 'drizzle-orm/pg-core'
+import {
+  doublePrecision,
+  integer,
+  primaryKey,
+  text,
+  timestamp,
+  uuid,
+} from 'drizzle-orm/pg-core'
 
-// This app shares a database with AIMS. All current and future tables belong
-// to this schema, preventing naming collisions without a second database.
-export const recipesSchema = pgSchema('recipes')
+import { user } from './auth'
+import { recipesSchema } from './core'
+
+export { recipesSchema } from './core'
+
+export const recipeStepType = recipesSchema.enum('recipe_step_type', [
+  'normal',
+  'timer',
+  'group',
+])
+
+export const ingredientType = recipesSchema.table('ingredient_type', {
+  id: uuid('id').defaultRandom().primaryKey(),
+  createdById: text('created_by_id').notNull().references(() => user.id, {
+    onDelete: 'cascade',
+  }),
+  createdAt: timestamp('created_at', {
+    withTimezone: true,
+  }).notNull().defaultNow(),
+  name: text('name').notNull(),
+  icon: text('icon').notNull(),
+  sortOrder: integer('sort_order').notNull().default(0),
+})
+
+export const ingredient = recipesSchema.table('ingredient', {
+  id: uuid('id').defaultRandom().primaryKey(),
+  createdById: text('created_by_id').notNull().references(() => user.id, {
+    onDelete: 'cascade',
+  }),
+  typeId: uuid('type_id').references(() => ingredientType.id, {
+    onDelete: 'set null',
+  }),
+  createdAt: timestamp('created_at', {
+    withTimezone: true,
+  }).notNull().defaultNow(),
+  name: text('name').notNull(),
+  calorieAmount: doublePrecision('calorie_amount'),
+  calories: integer('calories'),
+  caloriesPer100g: integer('calories_per_100g'),
+  calorieUnit: text('calorie_unit'),
+  defaultUnit: text('default_unit'),
+  gramsPerUnit: doublePrecision('grams_per_unit'),
+})
+
+export const recipe = recipesSchema.table('recipe', {
+  id: uuid('id').defaultRandom().primaryKey(),
+  createdById: text('created_by_id').notNull().references(() => user.id, {
+    onDelete: 'cascade',
+  }),
+  createdAt: timestamp('created_at', {
+    withTimezone: true,
+  }).notNull().defaultNow(),
+  updatedAt: timestamp('updated_at', {
+    withTimezone: true,
+  }).notNull().defaultNow(),
+  name: text('name').notNull(),
+  calories: integer('calories'),
+  caloriesOverride: integer('calories_override'),
+  cookTimeMinutes: integer('cook_time_minutes'),
+  cuisine: text('cuisine'),
+  defaultPortions: integer('default_portions').notNull().default(2),
+  description: text('description'),
+  notes: text('notes'),
+  prepTimeMinutes: integer('prep_time_minutes'),
+  sourceName: text('source_name'),
+  sourceUrl: text('source_url'),
+  tags: text('tags').array().notNull().default([]),
+})
+
+export const recipeIngredient = recipesSchema.table('recipe_ingredient', {
+  id: uuid('id').defaultRandom().primaryKey(),
+  ingredientId: uuid('ingredient_id').notNull().references(() => ingredient.id, {
+    onDelete: 'restrict',
+  }),
+  recipeId: uuid('recipe_id').notNull().references(() => recipe.id, {
+    onDelete: 'cascade',
+  }),
+  isOptional: integer('is_optional').notNull().default(0),
+  amount: doublePrecision('amount'),
+  note: text('note'),
+  sortOrder: integer('sort_order').notNull().default(0),
+  unit: text('unit'),
+})
+
+export const recipeStep = recipesSchema.table('recipe_step', {
+  id: uuid('id').defaultRandom().primaryKey(),
+  parentStepId: uuid('parent_step_id'),
+  recipeId: uuid('recipe_id').notNull().references(() => recipe.id, {
+    onDelete: 'cascade',
+  }),
+  durationSeconds: integer('duration_seconds'),
+  instruction: text('instruction').notNull(),
+  sortOrder: integer('sort_order').notNull().default(0),
+  type: recipeStepType('type').notNull().default('normal'),
+})
+
+export const recipeShare = recipesSchema.table('recipe_share', {
+  recipeId: uuid('recipe_id').notNull().references(() => recipe.id, {
+    onDelete: 'cascade',
+  }),
+  sharedWithId: text('shared_with_id').notNull().references(() => user.id, {
+    onDelete: 'cascade',
+  }),
+  createdAt: timestamp('created_at', {
+    withTimezone: true,
+  }).notNull().defaultNow(),
+}, (table) => [
+  primaryKey({
+    columns: [
+      table.recipeId,
+      table.sharedWithId,
+    ],
+  }),
+])

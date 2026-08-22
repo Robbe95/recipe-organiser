@@ -1,11 +1,15 @@
 <script setup lang="ts">
 /* eslint-disable @intlify/vue-i18n/no-raw-text */
 import ImageUploadCard from '~/features/images/components/ImageUploadCard.vue'
+import { useRecipesQuery } from '~/features/recipes/api/listRecipes.query'
 
 definePageMeta({
   layout: 'dashboard',
   middleware: 'auth',
 })
+
+const recipesQuery = useRecipesQuery()
+const recipes = computed(() => recipesQuery.data.value || [])
 </script>
 
 <template>
@@ -39,6 +43,7 @@ definePageMeta({
     </div>
 
     <UPageCard
+      v-if="recipesQuery.isPending.value || recipes.length === 0"
       class="
         border-dashed bg-default/70 py-14 text-center
         sm:py-20
@@ -67,10 +72,60 @@ definePageMeta({
         <UButton
           label="Add your first recipe"
           icon="i-lucide-plus"
-          disabled
+          to="/recipes/new"
         />
       </div>
     </UPageCard>
+
+    <section
+      v-else
+      class="flex flex-col gap-4"
+    >
+      <div class="flex items-center justify-between gap-3">
+        <h2 class="text-lg font-semibold text-highlighted">
+          Your recipes
+        </h2>
+        <UButton
+          label="New recipe"
+          icon="i-lucide-plus"
+          to="/recipes/new"
+        />
+      </div>
+      <div
+        class="
+          grid gap-4
+          sm:grid-cols-2
+        "
+      >
+        <UPageCard
+          v-for="recipe in recipes"
+          :key="recipe.id"
+          class="
+            transition-colors
+            hover:bg-elevated/50
+          "
+        >
+          <div class="flex flex-col gap-2">
+            <div class="flex items-center justify-between gap-2">
+              <UIcon
+                name="i-lucide-chef-hat"
+                class="size-5 text-primary"
+              />
+              <span class="text-xs text-toned">{{ recipe.defaultPortions }} portions</span>
+            </div>
+            <h3 class="font-semibold text-highlighted">
+              {{ recipe.name }}
+            </h3>
+            <p
+              v-if="recipe.description"
+              class="line-clamp-2 text-sm text-toned"
+            >
+              {{ recipe.description }}
+            </p>
+          </div>
+        </UPageCard>
+      </div>
+    </section>
 
     <ImageUploadCard />
   </section>

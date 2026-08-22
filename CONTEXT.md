@@ -22,6 +22,8 @@
 - All application API calls use oRPC. Client data hooks belong in
   `app/features/<feature>/api/`; Vue components consume those hooks rather than
   calling Pinia Colada directly.
+- Device appearance is managed with Nuxt Color Mode. Kitchen settings exposes
+  the same light and dark preference control as AIMS.
 - Image work is a dedicated feature: client code lives in `app/features/images`
   and server code in `server/features/images`.
 - Keep files focused and normally around 200 lines or fewer. Split by domain

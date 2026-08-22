@@ -1,5 +1,6 @@
 export * from './ai'
 export * from './auth'
+export * from './core'
 export * from './recipes'
 
 // Composition root for Drizzle. Feature schemas remain owned by their feature.

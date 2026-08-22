@@ -1,3 +1,5 @@
+import lucide from '@iconify-json/lucide/icons.json'
+
 // https://nuxt.com/docs/api/configuration/nuxt-config
 export default defineNuxtConfig({
 
@@ -13,6 +15,12 @@ export default defineNuxtConfig({
     config: {
       autoInit: false,
       standalone: false,
+    },
+  },
+  icon: {
+    clientBundle: {
+      icons: Object.keys(lucide.icons).map((name) => `lucide:${name}`),
+      sizeLimitKb: 4096,
     },
   },
   modules: [

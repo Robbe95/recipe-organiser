@@ -5,7 +5,7 @@ import {
   uniqueIndex,
 } from 'drizzle-orm/pg-core'
 
-import { recipesSchema } from './recipes'
+import { recipesSchema } from './core'
 
 export const user = recipesSchema.table('user', {
   id: text('id').primaryKey(),
