@@ -11,6 +11,7 @@ import ImageCropControls from './ImageCropControls.vue'
 const props = defineProps<{
   readonly error?: string
   readonly loading: boolean
+  readonly showFileInput?: boolean
   readonly submitLabel: string
 }>()
 
@@ -135,6 +136,10 @@ onBeforeUnmount(() => {
     URL.revokeObjectURL(previewUrl.value)
   }
 })
+
+defineExpose({
+  loadFile,
+})
 </script>
 
 <template>
@@ -147,6 +152,7 @@ onBeforeUnmount(() => {
     >
       <div class="flex flex-col gap-4">
         <UInput
+          v-if="showFileInput !== false"
           :disabled="loading"
           accept="image/jpeg,image/png,image/webp,image/avif,image/heic,image/heif"
           type="file"

@@ -1,0 +1,1 @@
+ALTER TABLE "recipes"."recipe" ADD COLUMN "image_id" uuid;

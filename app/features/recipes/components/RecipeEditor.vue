@@ -1,24 +1,25 @@
 <script setup lang="ts">
-/* eslint-disable @intlify/vue-i18n/no-raw-text */
 import { useCreateIngredientMutation } from '~/features/recipes/api/createIngredient.mutation'
 import { useCreateRecipeMutation } from '~/features/recipes/api/createRecipe.mutation'
+import { useCreateRecipeLabelMutation } from '~/features/recipes/api/createRecipeLabel.mutation'
+import { useRecipeQuery } from '~/features/recipes/api/getRecipe.query'
 import { useRecipeFormDataQuery } from '~/features/recipes/api/listRecipeFormData.query'
 import { useUpdateIngredientMutation } from '~/features/recipes/api/updateIngredient.mutation'
+import { useUpdateRecipeMutation } from '~/features/recipes/api/updateRecipe.mutation'
+import RecipeEditorActions from '~/features/recipes/components/RecipeEditorActions.vue'
+import RecipeEditorHeader from '~/features/recipes/components/RecipeEditorHeader.vue'
+import type {
+  IngredientRow,
+  RecipeForm,
+  StepRow,
+} from '~/features/recipes/components/recipeEditorTypes'
+import RecipeGeneralForm from '~/features/recipes/components/RecipeGeneralForm.vue'
+import RecipeIngredientsForm from '~/features/recipes/components/RecipeIngredientsForm.vue'
+import RecipeStepsForm from '~/features/recipes/components/RecipeStepsForm.vue'
 
-interface IngredientRow {
-  ingredientId: string | undefined
-  isOptional: boolean
-  amount: number | undefined
-  caloriesPer100g: number | undefined
-  gramsPerUnit: number | undefined
-  note: string
-  unit: string
-}
-interface StepRow {
-  durationMinutes: number | undefined
-  instruction: string
-  type: 'group' | 'normal' | 'timer'
-}
+const props = defineProps<{
+  recipeId?: string
+}>()
 
 const units = [
   'g',
@@ -27,34 +28,22 @@ const units = [
   'l',
   'tsp',
   'tbsp',
+  'amount',
   'can',
   'package',
 ]
 const formDataQuery = useRecipeFormDataQuery()
 const createIngredientMutation = useCreateIngredientMutation()
+const createRecipeLabelMutation = useCreateRecipeLabelMutation()
 const createRecipeMutation = useCreateRecipeMutation()
 const updateIngredientMutation = useUpdateIngredientMutation()
-const isSaving = computed(() => createRecipeMutation.isLoading.value)
+const updateRecipeMutation = useUpdateRecipeMutation()
+const recipeQuery = props.recipeId ? useRecipeQuery(props.recipeId) : null
+const isSaving = computed(() => createRecipeMutation.isLoading.value || updateRecipeMutation.isLoading.value)
 const saveError = ref('')
-const activeTab = ref('general')
-const tabs = [
-  {
-    icon: 'i-lucide-notebook-pen',
-    label: 'General',
-    value: 'general',
-  },
-  {
-    icon: 'i-lucide-shopping-basket',
-    label: 'Ingredients',
-    value: 'ingredients',
-  },
-  {
-    icon: 'i-lucide-list-ordered',
-    label: 'Steps',
-    value: 'steps',
-  },
-]
-const recipe = reactive({
+const activeTab = ref<'general' | 'ingredients' | 'steps'>('general')
+const recipe = reactive<RecipeForm>({
+  imageId: null as string | null,
   name: '',
   caloriesOverride: undefined as number | undefined,
   cookTimeMinutes: undefined as number | undefined,
@@ -65,7 +54,7 @@ const recipe = reactive({
   prepTimeMinutes: undefined as number | undefined,
   sourceName: '',
   sourceUrl: '',
-  tags: '',
+  tags: [] as string[],
 })
 const ingredients = ref<IngredientRow[]>([
   newIngredientRow(),
@@ -75,30 +64,109 @@ const steps = ref<StepRow[]>([
 ])
 
 const ingredientOptions = computed(() => formDataQuery.data.value?.ingredients || [])
+const cuisineOptions = computed(() => formDataQuery.data.value?.labels
+  .filter((label) => label.kind === 'cuisine')
+  .map((label) => label.name) || [])
 const otherTypeId = computed(() => formDataQuery.data.value?.types.find((type) => type.name === 'Other')?.id || null)
+const sourceOptions = computed(() => formDataQuery.data.value?.labels
+  .filter((label) => label.kind === 'source')
+  .map((label) => label.name) || [])
+const tagOptions = computed(() => formDataQuery.data.value?.labels
+  .filter((label) => label.kind === 'tag')
+  .map((label) => label.name) || [])
 const estimatedCalories = computed(() => Math.round(ingredients.value.reduce((total, item) => {
-  if (!item.amount || item.caloriesPer100g === undefined) {
+  if (!item.amount || item.calories === undefined || !item.calorieAmount || !item.calorieUnit) {
     return total
   }
-  let grams = item.amount * (item.gramsPerUnit || 0)
 
-  if (item.unit === 'g') {
-    grams = item.amount
-  }
-  else if (item.unit === 'kg') {
-    grams = item.amount * 1000
+  const comparableAmount = convertAmount(item.amount, item.unit, item.calorieUnit)
+
+  if (comparableAmount === undefined) {
+    return total
   }
 
-  return total + (grams * item.caloriesPer100g / 100)
+  return total + (comparableAmount * item.calories / item.calorieAmount)
 }, 0)))
+
+let recipeLoaded = false
+
+watch([
+  () => recipeQuery?.data.value,
+  ingredientOptions,
+], ([
+  savedRecipe,
+]) => {
+  if (!savedRecipe || recipeLoaded || ingredientOptions.value.length === 0) {
+    return
+  }
+
+  Object.assign(recipe, {
+    imageId: savedRecipe.imageId,
+    name: savedRecipe.name,
+    caloriesOverride: savedRecipe.caloriesOverride ?? undefined,
+    cookTimeMinutes: savedRecipe.cookTimeMinutes ?? undefined,
+    cuisine: savedRecipe.cuisine || '',
+    defaultPortions: savedRecipe.defaultPortions,
+    description: savedRecipe.description || '',
+    notes: savedRecipe.notes || '',
+    prepTimeMinutes: savedRecipe.prepTimeMinutes ?? undefined,
+    sourceName: savedRecipe.sourceName || '',
+    sourceUrl: savedRecipe.sourceUrl || '',
+    tags: savedRecipe.tags,
+  })
+  ingredients.value = savedRecipe.ingredients.map((item) => {
+    const row: IngredientRow = {
+      ingredientId: item.ingredientId,
+      isOptional: item.isOptional === 1,
+      amount: item.amount ?? undefined,
+      calorieAmount: undefined,
+      calories: undefined,
+      calorieUnit: undefined,
+      note: item.note || '',
+      unit: item.unit || '',
+    }
+
+    setIngredientDetails(row)
+
+    return row
+  })
+  steps.value = savedRecipe.steps.map((step) => ({
+    durationMinutes: step.durationSeconds ? step.durationSeconds / 60 : undefined,
+    instruction: step.instruction,
+    type: step.type,
+  }))
+  recipeLoaded = true
+}, {
+  immediate: true,
+})
+
+function convertAmount(amount: number, fromUnit: string, toUnit: string) {
+  if (fromUnit === toUnit) {
+    return amount
+  }
+
+  const conversions: Record<string, number> = {
+    g: 1,
+    kg: 1000,
+    l: 1000,
+    ml: 1,
+  }
+  const fromFactor = conversions[fromUnit]
+  const toFactor = conversions[toUnit]
+
+  return fromFactor === undefined || toFactor === undefined
+    ? undefined
+    : amount * fromFactor / toFactor
+}
 
 function newIngredientRow(): IngredientRow {
   return {
     ingredientId: undefined,
     isOptional: false,
     amount: undefined,
-    caloriesPer100g: undefined,
-    gramsPerUnit: undefined,
+    calorieAmount: undefined,
+    calories: undefined,
+    calorieUnit: undefined,
     note: '',
     unit: '',
   }
@@ -129,6 +197,47 @@ function addStep(type: StepRow['type'] = 'normal') {
 
 function removeStep(index: number) {
   steps.value.splice(index, 1)
+}
+
+async function setCuisine(value: string) {
+  const label = await createRecipeLabelMutation.mutateAsync({
+    name: value,
+    kind: 'cuisine',
+  })
+
+  recipe.cuisine = label.name
+}
+
+function clearCuisine() {
+  recipe.cuisine = ''
+}
+
+async function setSource(value: string) {
+  const label = await createRecipeLabelMutation.mutateAsync({
+    name: value,
+    kind: 'source',
+  })
+
+  recipe.sourceName = label.name
+}
+
+function clearSource() {
+  recipe.sourceName = ''
+}
+
+async function addTag(value: string) {
+  const label = await createRecipeLabelMutation.mutateAsync({
+    name: value,
+    kind: 'tag',
+  })
+
+  if (!recipe.tags.includes(label.name)) {
+    recipe.tags.push(label.name)
+  }
+}
+
+function removeTag(tag: string) {
+  recipe.tags = recipe.tags.filter((value) => value !== tag)
 }
 
 async function createIngredient(name: string, row: IngredientRow) {
@@ -164,8 +273,9 @@ function setIngredientDetails(row: IngredientRow) {
     return
   }
 
-  row.caloriesPer100g = selected.caloriesPer100g ?? undefined
-  row.gramsPerUnit = selected.gramsPerUnit ?? undefined
+  row.calories = selected.calories ?? selected.caloriesPer100g ?? undefined
+  row.calorieAmount = selected.calorieAmount ?? (selected.caloriesPer100g ? 100 : undefined)
+  row.calorieUnit = selected.calorieUnit ?? (selected.caloriesPer100g ? 'g' : undefined)
   row.unit ||= selected.defaultUnit || ''
 }
 
@@ -176,9 +286,10 @@ async function saveIngredientDetails(row: IngredientRow) {
 
   await updateIngredientMutation.mutateAsync({
     id: row.ingredientId,
-    caloriesPer100g: row.caloriesPer100g ?? null,
+    calorieAmount: row.calorieAmount ?? null,
+    calories: row.calories ?? null,
+    calorieUnit: row.calorieUnit || row.unit || null,
     defaultUnit: row.unit || null,
-    gramsPerUnit: row.gramsPerUnit ?? null,
   })
 }
 
@@ -199,7 +310,8 @@ async function saveRecipe() {
     return
   }
   try {
-    await createRecipeMutation.mutateAsync({
+    const recipeInput = {
+      imageId: recipe.imageId,
       name: recipe.name,
       caloriesOverride: recipe.caloriesOverride ?? null,
       cookTimeMinutes: recipe.cookTimeMinutes ?? null,
@@ -224,8 +336,19 @@ async function saveRecipe() {
         instruction: item.instruction,
         type: item.type,
       })),
-      tags: recipe.tags.split(',').map((tag) => tag.trim()).filter(Boolean),
-    })
+      tags: recipe.tags.map((tag) => tag.trim()).filter(Boolean),
+    }
+
+    if (props.recipeId) {
+      await updateRecipeMutation.mutateAsync({
+        ...recipeInput,
+        id: props.recipeId,
+      })
+    }
+    else {
+      await createRecipeMutation.mutateAsync(recipeInput)
+    }
+
     await navigateTo('/dashboard')
   }
   catch {
@@ -239,25 +362,44 @@ async function saveRecipe() {
     class="flex flex-col gap-8"
     @submit.prevent="saveRecipe"
   >
-    <div class="flex flex-col gap-2">
-      <p class="text-sm font-medium text-primary">
-        Your recipe book
-      </p>
-      <h1 class="text-3xl font-bold tracking-tight text-highlighted">
-        Create a recipe
-      </h1>
-      <p class="text-sm text-toned">
-        Build the recipe in three calm steps. Amounts are based on two portions.
-      </p>
-    </div>
-
-    <UTabs
-      v-model="activeTab"
-      :items="tabs"
-      :content="false"
-      variant="link"
+    <RecipeEditorHeader
+      v-model:active-tab="activeTab"
+      :editing="Boolean(props.recipeId)"
     />
 
+    <RecipeGeneralForm
+      v-if="activeTab === 'general'"
+      v-model:recipe="recipe"
+      :cuisine-options="cuisineOptions"
+      :estimated-calories="estimatedCalories"
+      :source-options="sourceOptions"
+      :tag-options="tagOptions"
+      @add-tag="addTag"
+      @clear-cuisine="clearCuisine"
+      @clear-source="clearSource"
+      @create-cuisine="setCuisine"
+      @create-source="setSource"
+      @remove-tag="removeTag"
+    />
+    <RecipeIngredientsForm
+      v-else-if="activeTab === 'ingredients'"
+      v-model:ingredients="ingredients"
+      :ingredient-options="ingredientOptions"
+      :units="units"
+      @add="addIngredient"
+      @create="createIngredient"
+      @remove="removeIngredient"
+      @save-details="saveIngredientDetails"
+      @set-details="setIngredientDetails"
+    />
+    <RecipeStepsForm
+      v-else
+      v-model:steps="steps"
+      @add="addStep"
+      @remove="removeStep"
+    />
+
+    <!-- Legacy markup retained temporarily while the extracted form tabs settle.
     <section
       v-if="activeTab === 'general'"
       class="
@@ -312,6 +454,12 @@ async function saveRecipe() {
           placeholder="A short note about this recipe…"
         />
       </UFormField>
+      <UFormField
+        label="Recipe image"
+        hint="Optional"
+      >
+        <RecipeImageUpload v-model="recipe.imageId" />
+      </UFormField>
       <div
         class="
           grid gap-4
@@ -322,19 +470,59 @@ async function saveRecipe() {
           label="Cuisine"
           hint="Optional"
         >
-          <UInput
+          <USelectMenu
             v-model="recipe.cuisine"
-            placeholder="e.g. Japanese-inspired"
+            :items="cuisineOptions"
+            class="w-full"
+            create-item="always"
+            placeholder="Choose or add a cuisine"
+            clear
+            @clear="clearCuisine"
+            @create="setCuisine"
           />
         </UFormField>
         <UFormField
           label="Tags"
-          hint="Optional, comma separated"
+          hint="Optional"
         >
-          <UInput
+          <USelectMenu
             v-model="recipe.tags"
-            placeholder="weeknight, vegan, freezer-friendly"
-          />
+            :items="tagOptions"
+            class="w-full"
+            create-item="always"
+            placeholder="Choose or add tags"
+            multiple
+            @create="addTag"
+          >
+            <template #default>
+              <div class="flex min-w-0 flex-1 flex-wrap items-center gap-1">
+                <template v-if="recipe.tags.length > 0">
+                  <UBadge
+                    v-for="tag in recipe.tags"
+                    :key="tag"
+                    color="neutral"
+                    variant="subtle"
+                    class="flex items-center gap-1"
+                  >
+                    {{ tag }}
+                    <UButton
+                      as="span"
+                      icon="i-lucide-x"
+                      color="neutral"
+                      variant="ghost"
+                      size="xs"
+                      aria-label="Remove tag"
+                      @click.stop="removeTag(tag)"
+                    />
+                  </UBadge>
+                </template>
+                <span
+                  v-else
+                  class="text-dimmed"
+                >Choose or add tags</span>
+              </div>
+            </template>
+          </USelectMenu>
         </UFormField>
       </div>
       <div
@@ -405,9 +593,15 @@ async function saveRecipe() {
           label="Source"
           hint="Optional"
         >
-          <UInput
+          <USelectMenu
             v-model="recipe.sourceName"
-            placeholder="e.g. Ottolenghi SIMPLE"
+            :items="sourceOptions"
+            class="w-full"
+            create-item="always"
+            placeholder="Choose or add a source"
+            clear
+            @clear="clearSource"
+            @create="setSource"
           />
         </UFormField>
         <UFormField
@@ -475,7 +669,7 @@ async function saveRecipe() {
               />
             </UFormField>
             <UFormField label="Unit">
-              <USelect
+              <USelectMenu
                 v-model="item.unit"
                 :items="units"
                 class="w-full"
@@ -505,27 +699,22 @@ async function saveRecipe() {
                 placeholder="finely diced"
               />
             </UFormField>
-            <UFormField
-              label="kcal / 100 g"
-              hint="Saved to library"
-            >
+            <UFormField label="Calories">
               <UInput
-                v-model.number="item.caloriesPer100g"
+                v-model.number="item.calories"
                 type="number"
                 min="0"
                 placeholder="e.g. 144"
                 @blur="saveIngredientDetails(item)"
               />
             </UFormField>
-            <UFormField
-              label="g per unit"
-              hint="For can/package"
-            >
+            <UFormField :label="`Per ${item.calorieUnit || item.unit || 'unit'}`">
               <UInput
-                v-model.number="item.gramsPerUnit"
+                v-model.number="item.calorieAmount"
                 type="number"
-                min="0"
-                placeholder="e.g. 400"
+                min="0.001"
+                step="any"
+                placeholder="e.g. 100"
                 @blur="saveIngredientDetails(item)"
               />
             </UFormField>
@@ -633,27 +822,10 @@ async function saveRecipe() {
       </div>
     </section>
 
-    <div
-      class="flex items-center justify-end gap-3 border-t border-default pt-5"
-    >
-      <p
-        v-if="saveError"
-        class="mr-auto text-sm text-error"
-      >
-        {{ saveError }}
-      </p>
-      <UButton
-        label="Cancel"
-        color="neutral"
-        variant="ghost"
-        to="/dashboard"
-      />
-      <UButton
-        :loading="isSaving"
-        type="submit"
-        label="Save recipe"
-        icon="i-lucide-check"
-      />
-    </div>
+    -->
+    <RecipeEditorActions
+      :error="saveError"
+      :loading="isSaving"
+    />
   </form>
 </template>

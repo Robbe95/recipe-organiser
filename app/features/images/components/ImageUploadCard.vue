@@ -10,6 +10,12 @@ import type {
 import ImageCropEditor from './ImageCropEditor.vue'
 import ImageLibrary from './ImageLibrary.vue'
 
+const emit = defineEmits<{
+  uploaded: [image: {
+    id: string
+  }]
+}>()
+
 type UploadStage = 'complete' | 'idle' | 'optimising' | 'preparing' | 'uploading'
 
 const completeUpload = useCompleteImageUploadMutation()
@@ -60,7 +66,8 @@ async function uploadImage(payload: {
     }
 
     stage.value = 'optimising'
-    await completeUpload.mutateAsync({
+
+    const image = await completeUpload.mutateAsync({
       id: upload.id,
       contentType: payload.file.type as 'image/avif' | 'image/heic' | 'image/heif' | 'image/jpeg' | 'image/png' | 'image/webp',
       crop: payload.crop,
@@ -68,6 +75,12 @@ async function uploadImage(payload: {
       focalY: payload.focal.y,
       sourceKey: upload.sourceKey,
     })
+
+    if (!image) {
+      throw new Error('Image upload did not return an image.')
+    }
+
+    emit('uploaded', image)
     stage.value = 'complete'
   }
   catch (error) {

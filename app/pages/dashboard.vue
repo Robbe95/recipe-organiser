@@ -106,6 +106,12 @@ const recipes = computed(() => recipesQuery.data.value || [])
           "
         >
           <div class="flex flex-col gap-2">
+            <img
+              v-if="recipe.image"
+              :src="recipe.image.url"
+              :alt="recipe.name"
+              class="aspect-video w-full rounded-lg object-cover"
+            >
             <div class="flex items-center justify-between gap-2">
               <UIcon
                 name="i-lucide-chef-hat"
@@ -122,6 +128,13 @@ const recipes = computed(() => recipesQuery.data.value || [])
             >
               {{ recipe.description }}
             </p>
+            <UButton
+              :to="`/recipes/${recipe.id}/edit`"
+              label="Edit"
+              icon="i-lucide-pencil"
+              color="neutral"
+              variant="soft"
+            />
           </div>
         </UPageCard>
       </div>

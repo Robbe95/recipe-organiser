@@ -4,6 +4,7 @@ import {
   primaryKey,
   text,
   timestamp,
+  uniqueIndex,
   uuid,
 } from 'drizzle-orm/pg-core'
 
@@ -16,6 +17,12 @@ export const recipeStepType = recipesSchema.enum('recipe_step_type', [
   'normal',
   'timer',
   'group',
+])
+
+export const recipeLabelKind = recipesSchema.enum('recipe_label_kind', [
+  'cuisine',
+  'source',
+  'tag',
 ])
 
 export const ingredientType = recipesSchema.table('ingredient_type', {
@@ -56,6 +63,7 @@ export const recipe = recipesSchema.table('recipe', {
   createdById: text('created_by_id').notNull().references(() => user.id, {
     onDelete: 'cascade',
   }),
+  imageId: uuid('image_id'),
   createdAt: timestamp('created_at', {
     withTimezone: true,
   }).notNull().defaultNow(),
@@ -75,6 +83,24 @@ export const recipe = recipesSchema.table('recipe', {
   sourceUrl: text('source_url'),
   tags: text('tags').array().notNull().default([]),
 })
+
+export const recipeLabel = recipesSchema.table('recipe_label', {
+  id: uuid('id').defaultRandom().primaryKey(),
+  createdById: text('created_by_id').notNull().references(() => user.id, {
+    onDelete: 'cascade',
+  }),
+  createdAt: timestamp('created_at', {
+    withTimezone: true,
+  }).notNull().defaultNow(),
+  name: text('name').notNull(),
+  kind: recipeLabelKind('kind').notNull(),
+}, (table) => [
+  uniqueIndex('recipe_label_created_by_kind_name_unique').on(
+    table.createdById,
+    table.kind,
+    table.name,
+  ),
+])
 
 export const recipeIngredient = recipesSchema.table('recipe_ingredient', {
   id: uuid('id').defaultRandom().primaryKey(),

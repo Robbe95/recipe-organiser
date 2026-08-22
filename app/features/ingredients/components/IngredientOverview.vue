@@ -4,7 +4,8 @@ import {
   useIngredientTypeMutations,
   useLibraryIngredientMutations,
 } from '~/features/ingredients/api/manageIngredients.mutation'
-import IngredientTypeIconPicker from '~/features/ingredients/components/IngredientTypeIconPicker.vue'
+import IngredientFormModal from '~/features/ingredients/components/IngredientFormModal.vue'
+import IngredientTypeFormModal from '~/features/ingredients/components/IngredientTypeFormModal.vue'
 import { useRecipeFormDataQuery } from '~/features/recipes/api/listRecipeFormData.query'
 
 const formDataQuery = useRecipeFormDataQuery()
@@ -15,6 +16,7 @@ const units = [
   'l',
   'tsp',
   'tbsp',
+  'amount',
   'can',
   'package',
 ]
@@ -27,9 +29,9 @@ const editingTypeId = ref<string | null>(null)
 const newIngredient = reactive({
   typeId: '',
   name: '',
-  caloriesPer100g: undefined as number | undefined,
+  calorieAmount: undefined as number | undefined,
+  calories: undefined as number | undefined,
   defaultUnit: '',
-  gramsPerUnit: undefined as number | undefined,
 })
 const newType = reactive({
   name: '',
@@ -72,6 +74,19 @@ const visibleIngredientCount = computed(() => ingredientGroups.value.reduce(
   0,
 ))
 
+function formatCalories(ingredient: {
+  calorieAmount: number | null
+  calories: number | null
+  caloriesPer100g: number | null
+  calorieUnit: string | null
+}) {
+  if (ingredient.calories !== null && ingredient.calorieAmount !== null && ingredient.calorieUnit) {
+    return `${ingredient.calories} kcal / ${ingredient.calorieAmount} ${ingredient.calorieUnit}`
+  }
+
+  return ingredient.caloriesPer100g === null ? 'No calorie information' : `${ingredient.caloriesPer100g} kcal / 100 g`
+}
+
 async function addIngredient() {
   if (!newIngredient.name.trim()) {
     return
@@ -80,16 +95,17 @@ async function addIngredient() {
   await ingredientMutations.create.mutateAsync({
     ...newIngredient,
     typeId: newIngredient.typeId || null,
-    caloriesPer100g: newIngredient.caloriesPer100g ?? null,
+    calorieAmount: newIngredient.calorieAmount ?? null,
+    calories: newIngredient.calories ?? null,
+    calorieUnit: newIngredient.defaultUnit || null,
     defaultUnit: newIngredient.defaultUnit || null,
-    gramsPerUnit: newIngredient.gramsPerUnit ?? null,
   })
   Object.assign(newIngredient, {
     typeId: '',
     name: '',
-    caloriesPer100g: undefined,
+    calorieAmount: undefined,
+    calories: undefined,
     defaultUnit: '',
-    gramsPerUnit: undefined,
   })
   ingredientModalOpen.value = false
 }
@@ -97,9 +113,10 @@ async function addIngredient() {
 async function saveIngredient(item: { id: string
   typeId: string | null
   name: string
-  caloriesPer100g: number | null
-  defaultUnit: string | null
-  gramsPerUnit: number | null }) {
+  calorieAmount: number | null
+  calories: number | null
+  calorieUnit: string | null
+  defaultUnit: string | null }) {
   await ingredientMutations.update.mutateAsync(item)
 }
 
@@ -123,9 +140,9 @@ function openNewIngredient() {
   Object.assign(newIngredient, {
     typeId: '',
     name: '',
-    caloriesPer100g: undefined,
+    calorieAmount: undefined,
+    calories: undefined,
     defaultUnit: '',
-    gramsPerUnit: undefined,
   })
   ingredientModalOpen.value = true
 }
@@ -133,16 +150,18 @@ function openNewIngredient() {
 function openIngredient(item: { id: string
   typeId: string | null
   name: string
+  calorieAmount: number | null
+  calories: number | null
   caloriesPer100g: number | null
-  defaultUnit: string | null
-  gramsPerUnit: number | null }) {
+  calorieUnit: string | null
+  defaultUnit: string | null }) {
   editingIngredientId.value = item.id
   Object.assign(newIngredient, {
     ...item,
     typeId: item.typeId || '',
-    caloriesPer100g: item.caloriesPer100g ?? undefined,
+    calorieAmount: item.calorieAmount ?? (item.caloriesPer100g ? 100 : undefined),
+    calories: item.calories ?? item.caloriesPer100g ?? undefined,
     defaultUnit: item.defaultUnit || '',
-    gramsPerUnit: item.gramsPerUnit ?? undefined,
   })
   ingredientModalOpen.value = true
 }
@@ -153,9 +172,10 @@ async function submitIngredient() {
       id: editingIngredientId.value,
       ...newIngredient,
       typeId: newIngredient.typeId || null,
-      caloriesPer100g: newIngredient.caloriesPer100g ?? null,
+      calorieAmount: newIngredient.calorieAmount ?? null,
+      calories: newIngredient.calories ?? null,
+      calorieUnit: newIngredient.defaultUnit || null,
       defaultUnit: newIngredient.defaultUnit || null,
-      gramsPerUnit: newIngredient.gramsPerUnit ?? null,
     })
     ingredientModalOpen.value = false
 
@@ -334,7 +354,7 @@ async function submitType() {
                     {{ ingredient.name }}
                   </h3>
                   <p class="text-sm text-toned">
-                    {{ ingredient.defaultUnit || 'No default unit' }} · {{ ingredient.caloriesPer100g ?? '—' }} kcal / 100 g
+                    {{ ingredient.defaultUnit || 'No default unit' }} · {{ formatCalories(ingredient) }}
                   </p>
                 </div>
                 <UButton
@@ -387,117 +407,19 @@ async function submitType() {
       </div>
     </div>
 
-    <UModal
+    <IngredientFormModal
       v-model:open="ingredientModalOpen"
-      :title="editingIngredientId ? 'Edit ingredient' : 'New ingredient'"
-    >
-      <template #body>
-        <form
-          class="flex flex-col gap-4"
-          @submit.prevent="submitIngredient"
-        >
-          <UFormField
-            label="Name"
-            required
-          >
-            <UInput
-              v-model="newIngredient.name"
-              class="w-full"
-            />
-          </UFormField>
-          <UFormField label="Ingredient type">
-            <USelect
-              v-model="newIngredient.typeId"
-              :items="formDataQuery.data.value?.types || []"
-              value-key="id"
-              label-key="name"
-              class="w-full"
-              placeholder="Choose a type"
-            />
-          </UFormField>
-          <div
-            class="
-              grid gap-4
-              sm:grid-cols-2
-            "
-          >
-            <UFormField label="Default unit">
-              <USelect
-                v-model="newIngredient.defaultUnit"
-                :items="units"
-                class="w-full"
-                placeholder="Choose a unit"
-              />
-            </UFormField><UFormField label="Calories per 100 g">
-              <UInput
-                v-model.number="newIngredient.caloriesPer100g"
-                class="w-full"
-                type="number"
-                min="0"
-              />
-            </UFormField>
-          </div>
-          <UFormField
-            label="Grams per unit"
-            hint="Useful for cans and packages"
-          >
-            <UInput
-              v-model.number="newIngredient.gramsPerUnit"
-              class="w-full"
-              type="number"
-              min="0"
-            />
-          </UFormField>
-          <div class="flex justify-end gap-2">
-            <UButton
-              label="Cancel"
-              color="neutral"
-              variant="ghost"
-              @click="ingredientModalOpen = false"
-            /><UButton
-              type="submit"
-              label="Save ingredient"
-              icon="i-lucide-check"
-            />
-          </div>
-        </form>
-      </template>
-    </UModal>
-    <UModal
+      v-model:form="newIngredient"
+      :editing="Boolean(editingIngredientId)"
+      :types="formDataQuery.data.value?.types || []"
+      :units="units"
+      @submit="submitIngredient"
+    />
+    <IngredientTypeFormModal
       v-model:open="typeModalOpen"
-      :title="editingTypeId ? 'Edit ingredient type' : 'New ingredient type'"
-    >
-      <template #body>
-        <form
-          class="flex flex-col gap-4"
-          @submit.prevent="submitType"
-        >
-          <UFormField
-            label="Name"
-            required
-          >
-            <UInput
-              v-model="newType.name"
-              class="w-full"
-            />
-          </UFormField>
-          <UFormField label="Icon">
-            <IngredientTypeIconPicker v-model="newType.icon" />
-          </UFormField>
-          <div class="flex justify-end gap-2">
-            <UButton
-              label="Cancel"
-              color="neutral"
-              variant="ghost"
-              @click="typeModalOpen = false"
-            /><UButton
-              type="submit"
-              label="Save type"
-              icon="i-lucide-check"
-            />
-          </div>
-        </form>
-      </template>
-    </UModal>
+      v-model:form="newType"
+      :editing="Boolean(editingTypeId)"
+      @submit="submitType"
+    />
   </section>
 </template>
