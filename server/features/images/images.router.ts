@@ -1,22 +1,17 @@
-import { eq } from 'drizzle-orm'
 import { ORPCError } from '@orpc/server'
+import { eq } from 'drizzle-orm'
 import * as v from 'valibot'
 
-import {
-  db,
-} from '../../db'
-import { imageAsset } from '../../db/schema'
+import { db } from '../../db'
 import { protectedProcedure } from '../../orpc/procedure'
+import { processImage } from './imageProcessing'
 import {
   createReadUrl,
   createUploadUrl,
   deleteObject,
   readObject,
 } from './imageStorage'
-import {
-  imageVariants,
-  processImage,
-} from './imageProcessing'
+import { imageAsset } from './schema'
 
 const maxUploadBytes = 12 * 1024 * 1024
 const imageContentTypes = [
@@ -42,11 +37,11 @@ const uploadInputSchema = v.object({
   size: v.pipe(v.number(), v.integer(), v.minValue(1), v.maxValue(maxUploadBytes)),
 })
 const completeInputSchema = v.object({
+  id: v.pipe(v.string(), v.uuid()),
   contentType: v.picklist(imageContentTypes),
   crop: cropSchema,
   focalX: v.pipe(v.number(), v.minValue(0), v.maxValue(1)),
   focalY: v.pipe(v.number(), v.minValue(0), v.maxValue(1)),
-  id: v.pipe(v.string(), v.uuid()),
   sourceKey: v.pipe(v.string(), v.minLength(1), v.maxLength(500)),
 })
 
@@ -61,8 +56,7 @@ function assertOwnTemporaryKey(userId: string, imageId: string, sourceKey: strin
 const createUpload = protectedProcedure
   .input(uploadInputSchema)
   .handler(async ({
-    context,
-    input,
+    context, input,
   }) => {
     const id = crypto.randomUUID()
     const sourceKey = `recipes/${context.user.id}/incoming/${id}`
@@ -80,8 +74,7 @@ const createUpload = protectedProcedure
 const completeUpload = protectedProcedure
   .input(completeInputSchema)
   .handler(async ({
-    context,
-    input,
+    context, input,
   }) => {
     assertOwnTemporaryKey(context.user.id, input.id, input.sourceKey)
 
@@ -92,12 +85,12 @@ const completeUpload = protectedProcedure
         keyPrefix: `recipes/${context.user.id}/images/${input.id}`,
       })
       const image = await db.insert(imageAsset).values({
+        id: input.id,
         createdById: context.user.id,
         crop: input.crop,
         focalX: input.focalX,
         focalY: input.focalY,
         height: processed.height,
-        id: input.id,
         sourceKey: input.sourceKey,
         variantKeys: processed.keys,
         width: processed.width,
@@ -107,6 +100,7 @@ const completeUpload = protectedProcedure
     }
     catch (error) {
       console.error('Unable to process recipe image.', error)
+
       throw new ORPCError('BAD_REQUEST', {
         message: 'We could not process that image. Please try a different file.',
       })
@@ -120,7 +114,9 @@ const completeUpload = protectedProcedure
 
 const listImages = protectedProcedure
   .input(v.object({}))
-  .handler(async ({ context }) => {
+  .handler(async ({
+    context,
+  }) => {
     const images = await db.query.imageAsset.findMany({
       orderBy: (table, {
         desc,
@@ -131,7 +127,10 @@ const listImages = protectedProcedure
     return Promise.all(images.map(async (image) => ({
       ...image,
       urls: Object.fromEntries(await Promise.all(
-        Object.entries(image.variantKeys).map(async ([name, key]) => [
+        Object.entries(image.variantKeys).map(async ([
+          name,
+          key,
+        ]) => [
           name,
           await createReadUrl(key),
         ]),
@@ -140,8 +139,7 @@ const listImages = protectedProcedure
   })
 
 export const imageRouter = {
-  createUpload,
-  imageVariants,
   completeUpload,
+  createUpload,
   listImages,
 }

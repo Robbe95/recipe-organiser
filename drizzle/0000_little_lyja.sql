@@ -1,5 +1,11 @@
 CREATE SCHEMA "recipes";
 --> statement-breakpoint
+CREATE TABLE "recipes"."user_ai_settings" (
+	"user_id" text PRIMARY KEY NOT NULL,
+	"updated_at" timestamp with time zone DEFAULT now() NOT NULL,
+	"openai_api_key_encrypted" text
+);
+--> statement-breakpoint
 CREATE TABLE "recipes"."account" (
 	"id" text PRIMARY KEY NOT NULL,
 	"account_id" text NOT NULL,
@@ -39,12 +45,6 @@ CREATE TABLE "recipes"."user" (
 	CONSTRAINT "user_email_unique" UNIQUE("email")
 );
 --> statement-breakpoint
-CREATE TABLE "recipes"."user_ai_settings" (
-	"user_id" text PRIMARY KEY NOT NULL,
-	"updated_at" timestamp with time zone DEFAULT now() NOT NULL,
-	"openai_api_key_encrypted" text
-);
---> statement-breakpoint
 CREATE TABLE "recipes"."verification" (
 	"id" text PRIMARY KEY NOT NULL,
 	"created_at" timestamp with time zone,
@@ -54,6 +54,21 @@ CREATE TABLE "recipes"."verification" (
 	"value" text NOT NULL
 );
 --> statement-breakpoint
+CREATE TABLE "recipes"."image_asset" (
+	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
+	"created_by_id" text NOT NULL,
+	"created_at" timestamp with time zone DEFAULT now() NOT NULL,
+	"crop" jsonb NOT NULL,
+	"focal_x" real DEFAULT 0.5 NOT NULL,
+	"focal_y" real DEFAULT 0.5 NOT NULL,
+	"height" integer NOT NULL,
+	"source_key" text NOT NULL,
+	"variant_keys" jsonb NOT NULL,
+	"width" integer NOT NULL,
+	CONSTRAINT "image_asset_source_key_unique" UNIQUE("source_key")
+);
+--> statement-breakpoint
+ALTER TABLE "recipes"."user_ai_settings" ADD CONSTRAINT "user_ai_settings_user_id_user_id_fk" FOREIGN KEY ("user_id") REFERENCES "recipes"."user"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "recipes"."account" ADD CONSTRAINT "account_user_id_user_id_fk" FOREIGN KEY ("user_id") REFERENCES "recipes"."user"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "recipes"."session" ADD CONSTRAINT "session_user_id_user_id_fk" FOREIGN KEY ("user_id") REFERENCES "recipes"."user"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
-ALTER TABLE "recipes"."user_ai_settings" ADD CONSTRAINT "user_ai_settings_user_id_user_id_fk" FOREIGN KEY ("user_id") REFERENCES "recipes"."user"("id") ON DELETE cascade ON UPDATE no action;
+ALTER TABLE "recipes"."image_asset" ADD CONSTRAINT "image_asset_created_by_id_user_id_fk" FOREIGN KEY ("created_by_id") REFERENCES "recipes"."user"("id") ON DELETE cascade ON UPDATE no action;

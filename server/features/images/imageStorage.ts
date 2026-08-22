@@ -1,3 +1,5 @@
+import { Buffer } from 'node:buffer'
+
 import {
   DeleteObjectCommand,
   GetObjectCommand,
@@ -19,13 +21,13 @@ function requiredEnvironment(name: string): string {
 function getStorageConfig() {
   return {
     bucket: requiredEnvironment('S3_BUCKET'),
-    endpoint: requiredEnvironment('S3_ENDPOINT'),
-    forcePathStyle: process.env.S3_FORCE_PATH_STYLE === 'true',
-    region: process.env.S3_REGION || 'auto',
     credentials: {
       accessKeyId: requiredEnvironment('S3_ACCESS_KEY_ID'),
       secretAccessKey: requiredEnvironment('S3_SECRET_ACCESS_KEY'),
     },
+    endpoint: requiredEnvironment('S3_ENDPOINT'),
+    forcePathStyle: process.env.S3_FORCE_PATH_STYLE === 'true',
+    region: process.env.S3_REGION || 'auto',
   }
 }
 
@@ -46,14 +48,16 @@ export async function createUploadUrl(input: {
 }) {
   const config = getStorageConfig()
 
-  return getSignedUrl(
+  return await getSignedUrl(
     storageClient(),
     new PutObjectCommand({
       Bucket: config.bucket,
       ContentType: input.contentType,
       Key: input.key,
     }),
-    { expiresIn: 60 * 5 },
+    {
+      expiresIn: 60 * 5,
+    },
   )
 }
 
@@ -98,12 +102,14 @@ export async function deleteObject(key: string) {
 export async function createReadUrl(key: string) {
   const config = getStorageConfig()
 
-  return getSignedUrl(
+  return await getSignedUrl(
     storageClient(),
     new GetObjectCommand({
       Bucket: config.bucket,
       Key: key,
     }),
-    { expiresIn: 60 * 15 },
+    {
+      expiresIn: 60 * 15,
+    },
   )
 }

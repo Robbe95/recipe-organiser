@@ -1,5 +1,7 @@
 <script setup lang="ts">
 /* eslint-disable @intlify/vue-i18n/no-raw-text */
+import ImageUploadCard from '~/features/images/components/ImageUploadCard.vue'
+
 definePageMeta({
   layout: 'dashboard',
   middleware: 'auth',
@@ -69,5 +71,7 @@ definePageMeta({
         />
       </div>
     </UPageCard>
+
+    <ImageUploadCard />
   </section>
 </template>

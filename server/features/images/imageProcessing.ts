@@ -1,3 +1,5 @@
+import type { Buffer } from 'node:buffer'
+
 import sharp from 'sharp'
 
 import { writeWebp } from './imageStorage'
@@ -21,7 +23,7 @@ export const imageVariants = {
   },
 } as const
 
-export type ImageVariant = keyof typeof imageVariants | 'full'
+export type ImageVariant = 'full' | keyof typeof imageVariants
 
 export interface ImageCrop {
   readonly height: number
@@ -44,7 +46,9 @@ export async function processImage(input: {
   image: Buffer
   keyPrefix: string
 }) {
-  const metadata = await sharp(input.image, { failOn: 'none' }).metadata()
+  const metadata = await sharp(input.image, {
+    failOn: 'none',
+  }).metadata()
 
   if (!metadata.width || !metadata.height) {
     throw new Error('The uploaded file is not a readable image.')
@@ -56,7 +60,9 @@ export async function processImage(input: {
     throw new Error('The selected crop is outside the uploaded image.')
   }
 
-  const source = sharp(input.image, { failOn: 'none' }).extract(crop).rotate()
+  const source = sharp(input.image, {
+    failOn: 'none',
+  }).extract(crop).rotate()
   const variants = Object.entries(imageVariants) as [
     Exclude<ImageVariant, 'full'>,
     {
@@ -66,7 +72,10 @@ export async function processImage(input: {
   ][]
   const keys = {} as Record<ImageVariant, string>
 
-  await Promise.all(variants.map(async ([name, dimensions]) => {
+  await Promise.all(variants.map(async ([
+    name,
+    dimensions,
+  ]) => {
     const key = `${input.keyPrefix}/${name}.webp`
     const body = await source
       .clone()
@@ -75,7 +84,9 @@ export async function processImage(input: {
         height: dimensions.height,
         width: dimensions.width,
       })
-      .webp({ quality: 82 })
+      .webp({
+        quality: 82,
+      })
       .toBuffer()
 
     await writeWebp({
@@ -86,6 +97,7 @@ export async function processImage(input: {
   }))
 
   const fullKey = `${input.keyPrefix}/full.webp`
+
   await writeWebp({
     body: await source
       .clone()
@@ -95,7 +107,9 @@ export async function processImage(input: {
         width: 2400,
         withoutEnlargement: true,
       })
-      .webp({ quality: 86 })
+      .webp({
+        quality: 86,
+      })
       .toBuffer(),
     key: fullKey,
   })

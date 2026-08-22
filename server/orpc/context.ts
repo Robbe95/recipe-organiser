@@ -3,9 +3,9 @@ import { auth } from '../utils/auth'
 export interface ORPCContext {
   readonly session: { readonly id: string } | null
   readonly user: {
-    readonly email: string
     readonly id: string
     readonly name: string
+    readonly email: string
   } | null
 }
 

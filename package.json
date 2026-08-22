@@ -17,13 +17,13 @@
     "test:nuxt": "vitest --project nuxt",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "drizzle-kit migrate",
-    "db:seed": "echo 'No seed script yet.'"
+    "db:seed": "ALLOW_LOCAL_SIGNUP=true tsx --env-file=.env server/db/seedLocalUser.ts"
   },
   "dependencies": {
     "@ai-sdk/openai": "^4.0.24",
     "@aws-sdk/client-s3": "^3.1115.0",
     "@aws-sdk/s3-request-presigner": "^3.1115.0",
-    "@better-auth/drizzle-adapter": "1.6.23",
+    "@better-auth/drizzle-adapter": "1.7.0",
     "@iconify-json/lucide": "1.2.114",
     "@iconify-json/simple-icons": "1.2.87",
     "@internationalized/date": "3.12.2",
@@ -39,7 +39,7 @@
     "@vueuse/core": "14.3.0",
     "@vueuse/nuxt": "14.3.0",
     "ai": "^7.0.42",
-    "better-auth": "1.6.23",
+    "better-auth": "1.7.0",
     "drizzle-orm": "0.45.2",
     "effect": "4.0.0-beta.98",
     "formango": "3.2.5",
