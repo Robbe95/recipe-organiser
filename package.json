@@ -15,8 +15,8 @@
     "test:watch": "vitest --watch",
     "test:unit": "vitest --project unit",
     "test:nuxt": "vitest --project nuxt",
-    "db:generate": "drizzle-kit generate",
-    "db:migrate": "drizzle-kit migrate",
+    "db:generate": "node --env-file=.env ./node_modules/drizzle-kit/bin.cjs generate",
+    "db:migrate": "node --env-file=.env --import tsx server/db/migrate.ts",
     "db:seed": "ALLOW_LOCAL_SIGNUP=true tsx --env-file=.env server/db/seedLocalUser.ts"
   },
   "dependencies": {
