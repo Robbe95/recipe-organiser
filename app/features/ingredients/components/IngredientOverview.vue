@@ -1,10 +1,15 @@
 <script setup lang="ts">
 /* eslint-disable @intlify/vue-i18n/no-raw-text */
+import ConfirmDeleteModal from '~/components/ConfirmDeleteModal.vue'
+import PageHeader from '~/components/page/PageHeader.vue'
+import PageShell from '~/components/page/PageShell.vue'
 import {
   useIngredientTypeMutations,
   useLibraryIngredientMutations,
 } from '~/features/ingredients/api/manageIngredients.mutation'
+import IngredientCard from '~/features/ingredients/components/IngredientCard.vue'
 import IngredientFormModal from '~/features/ingredients/components/IngredientFormModal.vue'
+import IngredientTypeCard from '~/features/ingredients/components/IngredientTypeCard.vue'
 import IngredientTypeFormModal from '~/features/ingredients/components/IngredientTypeFormModal.vue'
 import { useRecipeFormDataQuery } from '~/features/recipes/api/listRecipeFormData.query'
 
@@ -22,10 +27,12 @@ const units = [
 ]
 const search = ref('')
 const activeTab = ref('ingredients')
-const ingredientModalOpen = ref(false)
-const typeModalOpen = ref(false)
 const editingIngredientId = ref<string | null>(null)
 const editingTypeId = ref<string | null>(null)
+const overlay = useOverlay()
+const confirmDeleteModal = overlay.create(ConfirmDeleteModal)
+const ingredientFormModal = overlay.create(IngredientFormModal)
+const ingredientTypeFormModal = overlay.create(IngredientTypeFormModal)
 const newIngredient = reactive({
   typeId: '',
   name: '',
@@ -74,19 +81,6 @@ const visibleIngredientCount = computed(() => ingredientGroups.value.reduce(
   0,
 ))
 
-function formatCalories(ingredient: {
-  calorieAmount: number | null
-  calories: number | null
-  caloriesPer100g: number | null
-  calorieUnit: string | null
-}) {
-  if (ingredient.calories !== null && ingredient.calorieAmount !== null && ingredient.calorieUnit) {
-    return `${ingredient.calories} kcal / ${ingredient.calorieAmount} ${ingredient.calorieUnit}`
-  }
-
-  return ingredient.caloriesPer100g === null ? 'No calorie information' : `${ingredient.caloriesPer100g} kcal / 100 g`
-}
-
 async function addIngredient() {
   if (!newIngredient.name.trim()) {
     return
@@ -107,7 +101,6 @@ async function addIngredient() {
     calories: undefined,
     defaultUnit: '',
   })
-  ingredientModalOpen.value = false
 }
 
 async function saveIngredient(item: { id: string
@@ -135,7 +128,7 @@ async function saveType(item: { id: string
   await typeMutations.update.mutateAsync(item)
 }
 
-function openNewIngredient() {
+async function openNewIngredient() {
   editingIngredientId.value = null
   Object.assign(newIngredient, {
     typeId: '',
@@ -144,10 +137,23 @@ function openNewIngredient() {
     calories: undefined,
     defaultUnit: '',
   })
-  ingredientModalOpen.value = true
+
+  const submitted = await ingredientFormModal.open({
+    editing: false,
+    initialForm: newIngredient,
+    types: formDataQuery.data.value?.types || [],
+    units,
+  })
+
+  if (!submitted) {
+    return
+  }
+
+  Object.assign(newIngredient, submitted)
+  await submitIngredient()
 }
 
-function openIngredient(item: { id: string
+async function openIngredient(item: { id: string
   typeId: string | null
   name: string
   calorieAmount: number | null
@@ -163,7 +169,20 @@ function openIngredient(item: { id: string
     calories: item.calories ?? item.caloriesPer100g ?? undefined,
     defaultUnit: item.defaultUnit || '',
   })
-  ingredientModalOpen.value = true
+
+  const submitted = await ingredientFormModal.open({
+    editing: true,
+    initialForm: newIngredient,
+    types: formDataQuery.data.value?.types || [],
+    units,
+  })
+
+  if (!submitted) {
+    return
+  }
+
+  Object.assign(newIngredient, submitted)
+  await submitIngredient()
 }
 
 async function submitIngredient() {
@@ -177,7 +196,6 @@ async function submitIngredient() {
       calorieUnit: newIngredient.defaultUnit || null,
       defaultUnit: newIngredient.defaultUnit || null,
     })
-    ingredientModalOpen.value = false
 
     return
   }
@@ -185,7 +203,7 @@ async function submitIngredient() {
   await addIngredient()
 }
 
-function openType(item?: { id: string
+async function openType(item?: { id: string
   name: string
   icon: string }) {
   editingTypeId.value = item?.id || null
@@ -193,7 +211,18 @@ function openType(item?: { id: string
     name: '',
     icon: 'i-lucide-package',
   })
-  typeModalOpen.value = true
+
+  const submitted = await ingredientTypeFormModal.open({
+    editing: Boolean(item),
+    initialForm: newType,
+  })
+
+  if (!submitted) {
+    return
+  }
+
+  Object.assign(newType, submitted)
+  await submitType()
 }
 
 async function submitType() {
@@ -206,47 +235,55 @@ async function submitType() {
   else {
     await addType()
   }
+}
 
-  typeModalOpen.value = false
+async function deleteIngredient(item: { id: string
+  name: string }) {
+  const confirmed = await confirmDeleteModal.open({
+    title: 'Delete ingredient?',
+    description: `Delete ${item.name}? It must not be used by a recipe.`,
+  })
+
+  if (!confirmed) {
+    return
+  }
+
+  await ingredientMutations.delete.mutateAsync({
+    id: item.id,
+  })
+}
+
+async function deleteType(item: { id: string
+  name: string }) {
+  const confirmed = await confirmDeleteModal.open({
+    title: 'Delete ingredient type?',
+    description: `Delete ${item.name}? Existing ingredients will become uncategorised.`,
+  })
+
+  if (!confirmed) {
+    return
+  }
+
+  await typeMutations.delete.mutateAsync({
+    id: item.id,
+  })
 }
 </script>
 
 <template>
-  <section
-    class="
-      flex w-full flex-col gap-7 py-4
-      sm:py-8
-    "
-  >
-    <div
-      class="
-        flex flex-col justify-between gap-4
-        sm:flex-row sm:items-end
-      "
+  <PageShell>
+    <PageHeader
+      title="Ingredients"
+      description="The shared ingredients used to build recipes and future shopping lists."
     >
-      <div class="flex flex-col gap-2">
-        <div class="flex items-center gap-2 text-sm font-medium text-primary">
-          <UIcon
-            name="i-lucide-shopping-basket"
-            class="size-4"
-          />
-          Ingredient library
-        </div>
-        <div class="flex flex-col gap-1">
-          <h1 class="text-3xl font-bold tracking-tight text-highlighted">
-            Ingredients
-          </h1>
-          <p class="text-sm text-toned">
-            The shared ingredients used to build recipes and future shopping lists.
-          </p>
-        </div>
-      </div>
-      <UButton
-        :label="activeTab === 'ingredients' ? 'New ingredient' : 'New ingredient type'"
-        icon="i-lucide-plus"
-        @click="activeTab === 'ingredients' ? openNewIngredient() : openType()"
-      />
-    </div>
+      <template #actions>
+        <UButton
+          :label="activeTab === 'ingredients' ? 'New ingredient' : 'New ingredient type'"
+          icon="i-lucide-plus"
+          @click="activeTab === 'ingredients' ? openNewIngredient() : openType()"
+        />
+      </template>
+    </PageHeader>
 
     <UTabs
       v-model="activeTab"
@@ -344,29 +381,13 @@ async function submitType() {
               xl:grid-cols-3
             "
           >
-            <UPageCard
+            <IngredientCard
               v-for="ingredient in group.ingredients"
               :key="ingredient.id"
-            >
-              <div class="flex items-start justify-between gap-3">
-                <div class="flex flex-col gap-1">
-                  <h3 class="font-medium text-highlighted">
-                    {{ ingredient.name }}
-                  </h3>
-                  <p class="text-sm text-toned">
-                    {{ ingredient.defaultUnit || 'No default unit' }} · {{ formatCalories(ingredient) }}
-                  </p>
-                </div>
-                <UButton
-                  label="Edit"
-                  icon="i-lucide-pencil"
-                  color="neutral"
-                  variant="soft"
-                  aria-label="Save ingredient"
-                  @click="openIngredient(ingredient)"
-                />
-              </div>
-            </UPageCard>
+              :ingredient="ingredient"
+              @edit="openIngredient"
+              @delete="deleteIngredient"
+            />
           </div>
         </section>
       </div>
@@ -382,44 +403,14 @@ async function submitType() {
           xl:grid-cols-3
         "
       >
-        <UPageCard
+        <IngredientTypeCard
           v-for="type in formDataQuery.data.value?.types || []"
           :key="type.id"
-          :ui="{ body: 'p-4' }"
-        >
-          <div class="flex items-center justify-between gap-3">
-            <UIcon
-              :name="type.icon"
-              class="mb-2 size-5 text-primary"
-            />
-            <p class="mr-auto font-medium text-highlighted">
-              {{ type.name }}
-            </p>
-            <UButton
-              icon="i-lucide-pencil"
-              color="neutral"
-              variant="soft"
-              aria-label="Save type"
-              @click="openType(type)"
-            />
-          </div>
-        </UPageCard>
+          :type="type"
+          @edit="openType"
+          @delete="deleteType"
+        />
       </div>
     </div>
-
-    <IngredientFormModal
-      v-model:open="ingredientModalOpen"
-      v-model:form="newIngredient"
-      :editing="Boolean(editingIngredientId)"
-      :types="formDataQuery.data.value?.types || []"
-      :units="units"
-      @submit="submitIngredient"
-    />
-    <IngredientTypeFormModal
-      v-model:open="typeModalOpen"
-      v-model:form="newType"
-      :editing="Boolean(editingTypeId)"
-      @submit="submitType"
-    />
-  </section>
+  </PageShell>
 </template>

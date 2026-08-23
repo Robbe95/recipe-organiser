@@ -4,9 +4,7 @@ import { useCreateRecipeMutation } from '~/features/recipes/api/createRecipe.mut
 import { useCreateRecipeLabelMutation } from '~/features/recipes/api/createRecipeLabel.mutation'
 import { useRecipeQuery } from '~/features/recipes/api/getRecipe.query'
 import { useRecipeFormDataQuery } from '~/features/recipes/api/listRecipeFormData.query'
-import { useUpdateIngredientMutation } from '~/features/recipes/api/updateIngredient.mutation'
 import { useUpdateRecipeMutation } from '~/features/recipes/api/updateRecipe.mutation'
-import RecipeEditorActions from '~/features/recipes/components/RecipeEditorActions.vue'
 import RecipeEditorHeader from '~/features/recipes/components/RecipeEditorHeader.vue'
 import type {
   IngredientRow,
@@ -14,6 +12,7 @@ import type {
   StepRow,
 } from '~/features/recipes/components/recipeEditorTypes'
 import RecipeGeneralForm from '~/features/recipes/components/RecipeGeneralForm.vue'
+import RecipeIngredientDetailsModal from '~/features/recipes/components/RecipeIngredientDetailsModal.vue'
 import RecipeIngredientsForm from '~/features/recipes/components/RecipeIngredientsForm.vue'
 import RecipeStepsForm from '~/features/recipes/components/RecipeStepsForm.vue'
 
@@ -36,8 +35,8 @@ const formDataQuery = useRecipeFormDataQuery()
 const createIngredientMutation = useCreateIngredientMutation()
 const createRecipeLabelMutation = useCreateRecipeLabelMutation()
 const createRecipeMutation = useCreateRecipeMutation()
-const updateIngredientMutation = useUpdateIngredientMutation()
 const updateRecipeMutation = useUpdateRecipeMutation()
+const toast = useToast()
 const recipeQuery = props.recipeId ? useRecipeQuery(props.recipeId) : null
 const isSaving = computed(() => createRecipeMutation.isLoading.value || updateRecipeMutation.isLoading.value)
 const saveError = ref('')
@@ -56,9 +55,7 @@ const recipe = reactive<RecipeForm>({
   sourceUrl: '',
   tags: [] as string[],
 })
-const ingredients = ref<IngredientRow[]>([
-  newIngredientRow(),
-])
+const ingredients = ref<IngredientRow[]>([])
 const steps = ref<StepRow[]>([
   newStepRow(),
 ])
@@ -68,12 +65,15 @@ const cuisineOptions = computed(() => formDataQuery.data.value?.labels
   .filter((label) => label.kind === 'cuisine')
   .map((label) => label.name) || [])
 const otherTypeId = computed(() => formDataQuery.data.value?.types.find((type) => type.name === 'Other')?.id || null)
+const ingredientTypes = computed(() => formDataQuery.data.value?.types || [])
 const sourceOptions = computed(() => formDataQuery.data.value?.labels
   .filter((label) => label.kind === 'source')
   .map((label) => label.name) || [])
 const tagOptions = computed(() => formDataQuery.data.value?.labels
   .filter((label) => label.kind === 'tag')
   .map((label) => label.name) || [])
+const overlay = useOverlay()
+const ingredientDetailsModal = overlay.create(RecipeIngredientDetailsModal)
 const estimatedCalories = computed(() => Math.round(ingredients.value.reduce((total, item) => {
   if (!item.amount || item.calories === undefined || !item.calorieAmount || !item.calorieUnit) {
     return total
@@ -131,6 +131,7 @@ watch([
     return row
   })
   steps.value = savedRecipe.steps.map((step) => ({
+    clientId: crypto.randomUUID(),
     durationMinutes: step.durationSeconds ? step.durationSeconds / 60 : undefined,
     instruction: step.instruction,
     type: step.type,
@@ -174,18 +175,44 @@ function newIngredientRow(): IngredientRow {
 
 function newStepRow(): StepRow {
   return {
+    clientId: crypto.randomUUID(),
     durationMinutes: undefined,
     instruction: '',
     type: 'normal',
   }
 }
 
-function addIngredient() {
-  ingredients.value.push(newIngredientRow())
+async function quickAddIngredient(value: string) {
+  const parts = value.trim().split(/\s+/)
+  const parsedAmount = Number(parts[0])
+  const hasAmount = Number.isFinite(parsedAmount)
+  const name = (hasAmount ? parts.slice(1) : parts).join(' ')
+
+  if (!name) {
+    return
+  }
+
+  const row = newIngredientRow()
+
+  row.amount = hasAmount ? parsedAmount : undefined
+
+  const existing = ingredientOptions.value.find((ingredient) => ingredient.name.toLowerCase() === name.toLowerCase())
+
+  if (existing) {
+    row.ingredientId = existing.id
+    setIngredientDetails(row)
+    ingredients.value.push(row)
+
+    return
+  }
+
+  if (await createIngredient(name, row)) {
+    ingredients.value.push(row)
+  }
 }
 
-function removeIngredient(index: number) {
-  ingredients.value.splice(index, 1)
+function removeIngredient(row: IngredientRow) {
+  ingredients.value = ingredients.value.filter((item) => item !== row)
 }
 
 function addStep(type: StepRow['type'] = 'normal') {
@@ -240,11 +267,15 @@ function removeTag(tag: string) {
   recipe.tags = recipe.tags.filter((value) => value !== tag)
 }
 
+function formatIngredientName(name: string) {
+  return name.charAt(0).toUpperCase() + name.slice(1)
+}
+
 async function createIngredient(name: string, row: IngredientRow) {
   const trimmedName = name.trim()
 
   if (!trimmedName) {
-    return
+    return false
   }
   const existing = ingredientOptions.value.find((item) => item.name.toLowerCase() === trimmedName.toLowerCase())
 
@@ -252,18 +283,35 @@ async function createIngredient(name: string, row: IngredientRow) {
     row.ingredientId = existing.id
     setIngredientDetails(row)
 
-    return
+    return true
   }
+  const details = await ingredientDetailsModal.open({
+    name: formatIngredientName(trimmedName),
+    types: ingredientTypes.value,
+    units,
+  })
+
+  if (!details) {
+    return false
+  }
+
   const created = await createIngredientMutation.mutateAsync({
-    typeId: otherTypeId.value,
-    name: trimmedName,
-    defaultUnit: row.unit || null,
+    ...details,
+    typeId: details.typeId || otherTypeId.value,
+    calorieAmount: details.calorieAmount ?? null,
+    calories: details.calories ?? null,
+    calorieUnit: details.defaultUnit || row.unit || null,
+    defaultUnit: details.defaultUnit || row.unit || null,
   })
 
   if (created) {
     row.ingredientId = created.id
     setIngredientDetails(row)
+
+    return true
   }
+
+  return false
 }
 
 function setIngredientDetails(row: IngredientRow) {
@@ -277,20 +325,6 @@ function setIngredientDetails(row: IngredientRow) {
   row.calorieAmount = selected.calorieAmount ?? (selected.caloriesPer100g ? 100 : undefined)
   row.calorieUnit = selected.calorieUnit ?? (selected.caloriesPer100g ? 'g' : undefined)
   row.unit ||= selected.defaultUnit || ''
-}
-
-async function saveIngredientDetails(row: IngredientRow) {
-  if (!row.ingredientId) {
-    return
-  }
-
-  await updateIngredientMutation.mutateAsync({
-    id: row.ingredientId,
-    calorieAmount: row.calorieAmount ?? null,
-    calories: row.calories ?? null,
-    calorieUnit: row.calorieUnit || row.unit || null,
-    defaultUnit: row.unit || null,
-  })
 }
 
 async function saveRecipe() {
@@ -349,22 +383,32 @@ async function saveRecipe() {
       await createRecipeMutation.mutateAsync(recipeInput)
     }
 
-    await navigateTo('/dashboard')
+    toast.add({
+      title: props.recipeId ? 'Recipe saved' : 'Recipe created',
+      color: 'success',
+      description: 'Your changes are saved and you can keep editing.',
+      icon: 'i-lucide-circle-check',
+    })
   }
-  catch {
-    saveError.value = 'We could not save this recipe. Please try again.'
+  catch (error) {
+    console.error('Unable to save recipe.', error)
+    saveError.value = error instanceof Error && error.message
+      ? error.message
+      : 'We could not save this recipe. Please try again.'
   }
 }
 </script>
 
 <template>
   <form
+    id="recipe-editor-form"
     class="flex flex-col gap-8"
     @submit.prevent="saveRecipe"
   >
     <RecipeEditorHeader
       v-model:active-tab="activeTab"
       :editing="Boolean(props.recipeId)"
+      :loading="isSaving"
     />
 
     <RecipeGeneralForm
@@ -385,11 +429,10 @@ async function saveRecipe() {
       v-else-if="activeTab === 'ingredients'"
       v-model:ingredients="ingredients"
       :ingredient-options="ingredientOptions"
-      :units="units"
-      @add="addIngredient"
+      :ingredient-types="ingredientTypes"
+      @quick-add="quickAddIngredient"
       @create="createIngredient"
       @remove="removeIngredient"
-      @save-details="saveIngredientDetails"
       @set-details="setIngredientDetails"
     />
     <RecipeStepsForm
@@ -823,9 +866,11 @@ async function saveRecipe() {
     </section>
 
     -->
-    <RecipeEditorActions
-      :error="saveError"
-      :loading="isSaving"
-    />
+    <p
+      v-if="saveError"
+      class="text-sm text-error"
+    >
+      {{ saveError }}
+    </p>
   </form>
 </template>

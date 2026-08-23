@@ -1,9 +1,11 @@
 <script setup lang="ts">
-/* eslint-disable @intlify/vue-i18n/no-raw-text */
+import PageHeader from '~/components/page/PageHeader.vue'
+
 type RecipeEditorTab = 'general' | 'ingredients' | 'steps'
 
 defineProps<{
   editing: boolean
+  loading: boolean
 }>()
 
 const activeTab = defineModel<RecipeEditorTab>('activeTab', {
@@ -30,17 +32,22 @@ const tabs = [
 </script>
 
 <template>
-  <div class="flex flex-col gap-2">
-    <p class="text-sm font-medium text-primary">
-      Your recipe book
-    </p>
-    <h1 class="text-3xl font-bold tracking-tight text-highlighted">
-      {{ editing ? 'Edit recipe' : 'Create a recipe' }}
-    </h1>
-    <p class="text-sm text-toned">
-      Build the recipe in three calm steps. Amounts are based on two portions.
-    </p>
-  </div>
+  <PageHeader
+    :title="editing ? 'Edit recipe' : 'Create a recipe'"
+    :breadcrumbs="[{ label: 'Recipes',
+                     to: '/dashboard' }]"
+    description="Build the recipe in three calm steps. Amounts are based on two portions."
+  >
+    <template #actions>
+      <UButton
+        :loading="loading"
+        form="recipe-editor-form"
+        type="submit"
+        label="Save recipe"
+        icon="i-lucide-check"
+      />
+    </template>
+  </PageHeader>
 
   <UTabs
     v-model="activeTab"

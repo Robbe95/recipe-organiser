@@ -2,6 +2,7 @@ import { ORPCError } from '@orpc/server'
 import {
   and,
   asc,
+  desc,
   eq,
   inArray,
 } from 'drizzle-orm'
@@ -12,13 +13,22 @@ import {
   ingredient,
   ingredientType,
   recipe,
+  recipeCooking,
   recipeIngredient,
   recipeLabel,
   recipeStep,
 } from '../../db/schema'
-import { protectedProcedure } from '../../orpc/procedure'
-import { createReadUrl } from '../images/imageStorage'
+import {
+  protectedProcedure,
+  publicProcedure,
+} from '../../orpc/procedure'
+import {
+  createReadUrl,
+  readObject,
+} from '../images/imageStorage'
 import { imageAsset } from '../images/schema'
+import type { ImportedRecipe } from './recipeImport.service'
+import { extractRecipeFromImage } from './recipeImport.service'
 
 const defaultIngredientTypes = [
   [
@@ -86,6 +96,35 @@ function convertAmount(amount: number, fromUnit: string | null | undefined, toUn
   }
 
   return amount * fromFactor / toFactor
+}
+
+function normalizeImportedNutrition(item: ImportedRecipe['ingredients'][number]) {
+  const unit = item.nutritionUnit || item.defaultUnit || item.unit || null
+  let normalization: {
+    calorieAmount: number
+    calorieUnit: string | null
+  } = {
+    calorieAmount: 1,
+    calorieUnit: unit,
+  }
+
+  if (unit === 'g' || unit === 'kg') {
+    normalization = {
+      calorieAmount: 100,
+      calorieUnit: 'g',
+    }
+  }
+  else if (unit === 'ml' || unit === 'l') {
+    normalization = {
+      calorieAmount: 100,
+      calorieUnit: 'ml',
+    }
+  }
+
+  return {
+    ...normalization,
+    calories: item.calories,
+  }
 }
 
 function calculateRecipeCalories(
@@ -415,6 +454,33 @@ const updateIngredient = protectedProcedure.input(updateIngredientInput).handler
   return updated
 })
 
+const deleteIngredient = protectedProcedure.input(v.object({
+  id: v.pipe(v.string(), v.uuid()),
+})).handler(async ({
+  context, input,
+}) => {
+  const usage = await db.query.recipeIngredient.findFirst({
+    where: eq(recipeIngredient.ingredientId, input.id),
+  })
+
+  if (usage) {
+    throw new ORPCError('BAD_REQUEST', {
+      message: 'Remove this ingredient from its recipes before deleting it.',
+    })
+  }
+
+  const deleted = await db.delete(ingredient).where(and(
+    eq(ingredient.id, input.id),
+    eq(ingredient.createdById, context.user.id),
+  )).returning({
+    id: ingredient.id,
+  })
+
+  if (!deleted[0]) {
+    throw new ORPCError('NOT_FOUND')
+  }
+})
+
 const ingredientTypeInput = v.object({
   name: v.pipe(v.string(), v.trim(), v.minLength(1), v.maxLength(80)),
   icon: v.pipe(v.string(), v.trim(), v.minLength(1), v.maxLength(100)),
@@ -461,27 +527,80 @@ const updateIngredientType = protectedProcedure.input(v.intersect([
   return updated
 })
 
-const listRecipes = protectedProcedure.input(v.object({})).handler(async ({
-  context,
+const deleteIngredientType = protectedProcedure.input(v.object({
+  id: v.pipe(v.string(), v.uuid()),
+})).handler(async ({
+  context, input,
 }) => {
+  const deleted = await db.delete(ingredientType).where(and(
+    eq(ingredientType.id, input.id),
+    eq(ingredientType.createdById, context.user.id),
+  )).returning({
+    id: ingredientType.id,
+  })
+
+  if (!deleted[0]) {
+    throw new ORPCError('NOT_FOUND')
+  }
+})
+
+const listRecipes = publicProcedure.input(v.object({})).handler(async () => {
   const recipes = await db.query.recipe.findMany({
     orderBy: (table) => asc(table.name),
-    where: eq(recipe.createdById, context.user.id),
   })
   const imageIds = recipes.flatMap((savedRecipe) => savedRecipe.imageId
     ? [
         savedRecipe.imageId,
       ]
     : [])
-  const images = imageIds.length === 0
+  const recipeIds = recipes.map((savedRecipe) => savedRecipe.id)
+  const [
+    images,
+    recipeIngredients,
+  ] = await Promise.all([
+    imageIds.length === 0
+      ? []
+      : db.query.imageAsset.findMany({
+          where: inArray(imageAsset.id, imageIds),
+        }),
+    recipeIds.length === 0
+      ? []
+      : db.query.recipeIngredient.findMany({
+          where: inArray(recipeIngredient.recipeId, recipeIds),
+        }),
+  ])
+  const ingredientIds = recipeIngredients.map((item) => item.ingredientId)
+  const ingredients = ingredientIds.length === 0
     ? []
-    : await db.query.imageAsset.findMany({
-        where: inArray(imageAsset.id, imageIds),
+    : await db.query.ingredient.findMany({
+        columns: {
+          id: true,
+          name: true,
+        },
+        where: inArray(ingredient.id, ingredientIds),
       })
   const imageById = new Map(images.map((image) => [
     image.id,
     image,
   ]))
+  const ingredientNameById = new Map(ingredients.map((item) => [
+    item.id,
+    item.name,
+  ]))
+  const ingredientNamesByRecipeId = new Map<string, string[]>()
+
+  for (const item of recipeIngredients) {
+    const ingredientName = ingredientNameById.get(item.ingredientId)
+
+    if (!ingredientName) {
+      continue
+    }
+
+    const recipeIngredientNames = ingredientNamesByRecipeId.get(item.recipeId) || []
+
+    recipeIngredientNames.push(ingredientName)
+    ingredientNamesByRecipeId.set(item.recipeId, recipeIngredientNames)
+  }
 
   return Promise.all(recipes.map(async (savedRecipe) => {
     const image = savedRecipe.imageId ? imageById.get(savedRecipe.imageId) : undefined
@@ -494,6 +613,7 @@ const listRecipes = protectedProcedure.input(v.object({})).handler(async ({
             url: await createReadUrl(image.variantKeys.thumbnail),
           }
         : null,
+      ingredients: ingredientNamesByRecipeId.get(savedRecipe.id) || [],
     }
   }))
 })
@@ -530,6 +650,173 @@ const getRecipe = protectedProcedure.input(v.object({
     ingredients,
     steps,
   }
+})
+
+const getRecipeForCooking = publicProcedure.input(v.object({
+  id: v.pipe(v.string(), v.uuid()),
+})).handler(async ({
+  input,
+}) => {
+  const savedRecipe = await db.query.recipe.findFirst({
+    where: eq(recipe.id, input.id),
+  })
+
+  if (!savedRecipe) {
+    throw new ORPCError('NOT_FOUND')
+  }
+
+  const [
+    recipeIngredients,
+    steps,
+    image,
+  ] = await Promise.all([
+    db.query.recipeIngredient.findMany({
+      orderBy: (table) => asc(table.sortOrder),
+      where: eq(recipeIngredient.recipeId, savedRecipe.id),
+    }),
+    db.query.recipeStep.findMany({
+      orderBy: (table) => asc(table.sortOrder),
+      where: eq(recipeStep.recipeId, savedRecipe.id),
+    }),
+    savedRecipe.imageId
+      ? db.query.imageAsset.findFirst({
+          where: eq(imageAsset.id, savedRecipe.imageId),
+        })
+      : undefined,
+  ])
+  const ingredientIds = recipeIngredients.map((item) => item.ingredientId)
+  const savedIngredients = ingredientIds.length === 0
+    ? []
+    : await db.query.ingredient.findMany({
+        where: inArray(ingredient.id, ingredientIds),
+      })
+  const ingredientById = new Map(savedIngredients.map((item) => [
+    item.id,
+    item,
+  ]))
+  const typeIds = savedIngredients.flatMap((item) => item.typeId
+    ? [
+        item.typeId,
+      ]
+    : [])
+  const savedTypes = typeIds.length === 0
+    ? []
+    : await db.query.ingredientType.findMany({
+        where: inArray(ingredientType.id, typeIds),
+      })
+  const typeById = new Map(savedTypes.map((item) => [
+    item.id,
+    item,
+  ]))
+
+  return {
+    ...savedRecipe,
+    image: image
+      ? {
+          url: await createReadUrl(image.variantKeys.desktop),
+        }
+      : null,
+    ingredients: recipeIngredients.flatMap((item) => {
+      const savedIngredient = ingredientById.get(item.ingredientId)
+      const type = savedIngredient?.typeId
+        ? typeById.get(savedIngredient.typeId)
+        : undefined
+
+      return savedIngredient
+        ? [
+            {
+              id: item.id,
+              isOptional: Boolean(item.isOptional),
+              name: savedIngredient.name,
+              amount: item.amount,
+              note: item.note,
+              type: type?.name || 'Other',
+              typeIcon: type?.icon || 'i-lucide-package',
+              unit: item.unit || savedIngredient.defaultUnit,
+            },
+          ]
+        : []
+    }),
+    steps,
+  }
+})
+
+const completeRecipeCooking = publicProcedure.input(v.object({
+  recipeId: v.pipe(v.string(), v.uuid()),
+  note: v.optional(v.pipe(v.string(), v.trim(), v.maxLength(2000))),
+})).handler(async ({
+  input,
+}) => {
+  const savedRecipe = await db.query.recipe.findFirst({
+    where: eq(recipe.id, input.recipeId),
+  })
+
+  if (!savedRecipe) {
+    throw new ORPCError('NOT_FOUND')
+  }
+
+  const [
+    cooking,
+  ] = await db.insert(recipeCooking).values({
+    createdById: savedRecipe.createdById,
+    recipeId: savedRecipe.id,
+    note: input.note || null,
+  }).returning()
+
+  return cooking
+})
+
+const listRecipeCookingHistory = protectedProcedure.handler(async ({
+  context,
+}) => {
+  const history = await db.query.recipeCooking.findMany({
+    orderBy: (table) => desc(table.createdAt),
+    where: eq(recipeCooking.createdById, context.user.id),
+  })
+  const recipeIds = history.map((entry) => entry.recipeId)
+  const recipes = recipeIds.length === 0
+    ? []
+    : await db.query.recipe.findMany({
+        where: inArray(recipe.id, recipeIds),
+      })
+  const recipeById = new Map(recipes.map((item) => [
+    item.id,
+    item,
+  ]))
+
+  return history.flatMap((entry) => {
+    const savedRecipe = recipeById.get(entry.recipeId)
+
+    return savedRecipe
+      ? [
+          {
+            ...entry,
+            recipeName: savedRecipe.name,
+          },
+        ]
+      : []
+  })
+})
+
+const deleteRecipeCookingHistory = protectedProcedure.input(v.object({
+  id: v.pipe(v.string(), v.uuid()),
+})).handler(async ({
+  context, input,
+}) => {
+  const [
+    deleted,
+  ] = await db.delete(recipeCooking).where(and(
+    eq(recipeCooking.id, input.id),
+    eq(recipeCooking.createdById, context.user.id),
+  )).returning({
+    id: recipeCooking.id,
+  })
+
+  if (!deleted) {
+    throw new ORPCError('NOT_FOUND')
+  }
+
+  return deleted
 })
 
 const createRecipe = protectedProcedure.input(createRecipeInput).handler(async ({
@@ -591,6 +878,160 @@ const createRecipe = protectedProcedure.input(createRecipeInput).handler(async (
     }
 
     const labels = toRecipeLabels(input)
+
+    if (labels.length > 0) {
+      await tx.insert(recipeLabel).values(labels.map((label) => ({
+        ...label,
+        createdById: context.user.id,
+      }))).onConflictDoNothing()
+    }
+
+    return newRecipe
+  })
+
+  return created
+})
+
+const importRecipeFromImage = protectedProcedure.input(v.object({
+  imageId: v.pipe(v.string(), v.uuid()),
+})).handler(async ({
+  context, input,
+}) => {
+  await assertOwnImage(context.user.id, input.imageId)
+  await ensureDefaultIngredientTypes(context.user.id)
+
+  const uploadedImage = await db.query.imageAsset.findFirst({
+    where: and(eq(imageAsset.id, input.imageId), eq(imageAsset.createdById, context.user.id)),
+  })
+
+  if (!uploadedImage) {
+    throw new ORPCError('NOT_FOUND')
+  }
+
+  let imported
+
+  try {
+    imported = await extractRecipeFromImage(await readObject(uploadedImage.variantKeys.full))
+  }
+  catch (error) {
+    console.error('[Recipe import] Unable to extract recipe from image.', error)
+
+    throw new ORPCError('INTERNAL_SERVER_ERROR', {
+      message: error instanceof Error
+        ? error.message
+        : 'We could not read a recipe from that image. Please try another image.',
+    })
+  }
+
+  const [
+    existingIngredients,
+    ingredientTypes,
+  ] = await Promise.all([
+    db.query.ingredient.findMany({
+      where: eq(ingredient.createdById, context.user.id),
+    }),
+    db.query.ingredientType.findMany({
+      where: eq(ingredientType.createdById, context.user.id),
+    }),
+  ])
+  const ingredientByName = new Map(existingIngredients.map((item) => [
+    item.name.trim().toLocaleLowerCase(),
+    item,
+  ]))
+  const typeByName = new Map(ingredientTypes.map((item) => [
+    item.name.trim().toLocaleLowerCase(),
+    item,
+  ]))
+  const fallbackType = typeByName.get('other')
+
+  const importedIngredients = await db.transaction(async (tx) => {
+    const result = [] as Array<typeof existingIngredients[number]>
+
+    for (const item of imported.ingredients) {
+      const key = item.name.trim().toLocaleLowerCase()
+      let savedIngredient = ingredientByName.get(key)
+
+      if (!savedIngredient) {
+        const nutrition = normalizeImportedNutrition(item)
+        const [
+          created,
+        ] = await tx.insert(ingredient).values({
+          createdById: context.user.id,
+          typeId: item.category
+            ? typeByName.get(item.category.trim().toLocaleLowerCase())?.id || fallbackType?.id || null
+            : fallbackType?.id || null,
+          name: item.name,
+          calorieAmount: nutrition.calorieAmount,
+          calories: nutrition.calories,
+          calorieUnit: nutrition.calorieUnit,
+          defaultUnit: item.defaultUnit || nutrition.calorieUnit || item.unit,
+        }).returning()
+
+        if (!created) {
+          throw new ORPCError('INTERNAL_SERVER_ERROR')
+        }
+
+        savedIngredient = created
+        ingredientByName.set(key, created)
+      }
+
+      result.push(savedIngredient)
+    }
+
+    return result
+  })
+  const recipeIngredients = imported.ingredients.map((item, index) => ({
+    ...item,
+    ingredientId: importedIngredients[index]?.id,
+  })).filter((item): item is typeof item & {
+    ingredientId: string
+  } => Boolean(item.ingredientId))
+  const calories = calculateRecipeCalories(recipeIngredients, importedIngredients)
+  const created = await db.transaction(async (tx) => {
+    const [
+      newRecipe,
+    ] = await tx.insert(recipe).values({
+      createdById: context.user.id,
+      imageId: input.imageId,
+      name: imported.name,
+      calories,
+      cookTimeMinutes: imported.cookTimeMinutes,
+      cuisine: imported.cuisine || null,
+      defaultPortions: imported.defaultPortions,
+      description: imported.description || null,
+      prepTimeMinutes: imported.prepTimeMinutes,
+      tags: imported.tags,
+    }).returning()
+
+    if (!newRecipe) {
+      throw new ORPCError('INTERNAL_SERVER_ERROR')
+    }
+
+    if (recipeIngredients.length > 0) {
+      await tx.insert(recipeIngredient).values(recipeIngredients.map((item, sortOrder) => ({
+        ingredientId: item.ingredientId,
+        recipeId: newRecipe.id,
+        isOptional: item.isOptional ? 1 : 0,
+        amount: item.amount,
+        note: item.note,
+        sortOrder,
+        unit: item.unit,
+      })))
+    }
+
+    if (imported.steps.length > 0) {
+      await tx.insert(recipeStep).values(imported.steps.map((item, sortOrder) => ({
+        recipeId: newRecipe.id,
+        instruction: item.instruction,
+        sortOrder,
+        type: 'normal' as const,
+      })))
+    }
+
+    const labels = toRecipeLabels({
+      cuisine: imported.cuisine,
+      tags: imported.tags,
+    })
 
     if (labels.length > 0) {
       await tx.insert(recipeLabel).values(labels.map((label) => ({
@@ -703,12 +1144,37 @@ const updateRecipe = protectedProcedure.input(updateRecipeInput).handler(async (
   return updated
 })
 
+const deleteRecipe = protectedProcedure.input(v.object({
+  id: v.pipe(v.string(), v.uuid()),
+})).handler(async ({
+  context, input,
+}) => {
+  const deleted = await db.delete(recipe).where(and(
+    eq(recipe.id, input.id),
+    eq(recipe.createdById, context.user.id),
+  )).returning({
+    id: recipe.id,
+  })
+
+  if (!deleted[0]) {
+    throw new ORPCError('NOT_FOUND')
+  }
+})
+
 export const recipesRouter = {
+  completeRecipeCooking,
   createIngredient,
   createIngredientType,
   createRecipe,
   createRecipeLabel,
+  deleteIngredient,
+  deleteIngredientType,
+  deleteRecipe,
+  deleteRecipeCookingHistory,
   getRecipe,
+  getRecipeForCooking,
+  importRecipeFromImage,
+  listRecipeCookingHistory,
   listRecipeFormData,
   listRecipes,
   updateIngredient,

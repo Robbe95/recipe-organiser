@@ -25,6 +25,7 @@ export interface RecipeForm {
 }
 
 export interface StepRow {
+  clientId: string
   durationMinutes: number | undefined
   instruction: string
   type: 'group' | 'normal' | 'timer'

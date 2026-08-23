@@ -5,16 +5,13 @@ import {
 
 import { orpc } from '~/lib/orpc'
 
-export function useUpdateRecipeMutation() {
+export function useImportRecipeFromImageMutation() {
   const queryCache = useQueryCache()
 
-  return useMutation(orpc.recipes.updateRecipe.mutationOptions({
+  return useMutation(orpc.recipes.importRecipeFromImage.mutationOptions({
     onSuccess: async () => {
       await queryCache.invalidateQueries({
         key: orpc.recipes.listRecipes.key(),
-      })
-      await queryCache.invalidateQueries({
-        key: orpc.recipes.getRecipe.key(),
       })
     },
   }))

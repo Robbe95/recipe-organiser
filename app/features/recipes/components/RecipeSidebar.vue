@@ -32,9 +32,14 @@ const navigation = [
     to: '/ingredients',
   },
   {
-    disabled: true,
-    icon: 'i-lucide-sparkles',
-    label: 'Analyse a recipe',
+    icon: 'i-lucide-chef-hat',
+    label: 'Kitchen mode',
+    to: '/kitchen',
+  },
+  {
+    icon: 'i-lucide-history',
+    label: 'Cooking history',
+    to: '/history',
   },
   {
     disabled: true,
@@ -154,6 +159,14 @@ async function signOut() {
           icon="i-lucide-menu"
           aria-label="Open navigation"
           @click="() => { open = true }"
+        />
+        <div
+          id="dashboard-page-breadcrumbs"
+          class="ml-2 min-w-0"
+        />
+        <div
+          id="dashboard-page-actions"
+          class="ml-auto flex items-center gap-2"
         />
       </header>
       <main

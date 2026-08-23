@@ -1,27 +1,72 @@
 <script setup lang="ts">
 /* eslint-disable @intlify/vue-i18n/no-raw-text */
+import VueDraggable from 'vuedraggable'
+
 import type { IngredientRow } from './recipeEditorTypes'
+import RecipeIngredientCard from './RecipeIngredientCard.vue'
+import RecipeIngredientQuickAdd from './RecipeIngredientQuickAdd.vue'
 
-defineProps<{
-  ingredientOptions: Array<{ id: string
-    name: string }>
-  units: string[]
+interface IngredientOption {
+  id: string
+  typeId: string | null
+  name: string
+}
+interface IngredientType {
+  id: string
+  name: string
+  icon: string
+}
+
+const props = defineProps<{
+  ingredientOptions: IngredientOption[]
+  ingredientTypes: IngredientType[]
 }>()
-
 const emit = defineEmits<{
-  add: []
   create: [name: string, row: IngredientRow]
-  remove: [index: number]
-  saveDetails: [row: IngredientRow]
+  quickAdd: [value: string]
+  remove: [row: IngredientRow]
   setDetails: [row: IngredientRow]
 }>()
 const ingredients = defineModel<IngredientRow[]>('ingredients', {
   required: true,
 })
+const groups = computed(() => {
+  const items = new Map<string, IngredientRow[]>()
+
+  for (const row of ingredients.value) {
+    const typeId = props.ingredientOptions.find((item) => item.id === row.ingredientId)?.typeId || 'other'
+
+    items.set(typeId, [
+      ...(items.get(typeId) || []),
+      row,
+    ])
+  }
+
+  return [
+    ...props.ingredientTypes.map((type) => ({
+      ...type,
+      rows: items.get(type.id) || [],
+    })).filter((group) => group.rows.length),
+    ...(items.get('other')?.length
+      ? [
+          {
+            id: 'other',
+            name: 'Other ingredients',
+            icon: 'i-lucide-package',
+            rows: items.get('other') || [],
+          },
+        ]
+      : []),
+  ]
+})
+
+function syncOrder() {
+  ingredients.value = groups.value.flatMap((group) => group.rows)
+}
 </script>
 
 <template>
-  <section class="flex flex-col gap-4">
+  <section class="flex flex-col gap-5">
     <div class="flex items-end justify-between gap-4">
       <div
         class="flex flex-col gap-1"
@@ -33,101 +78,65 @@ const ingredients = defineModel<IngredientRow[]>('ingredients', {
         </h2><p
           class="text-sm text-toned"
         >
-          Search your ingredient library, or type a new ingredient to add it.
+          Add ingredients, then drag them to order each category.
         </p>
-      </div><UButton
-        label="Add ingredient"
-        icon="i-lucide-plus"
-        variant="soft"
-        @click="emit('add')"
-      />
+      </div>
     </div>
-    <div class="flex flex-col gap-3">
-      <UCard
-        v-for="(item, index) in ingredients"
-        :key="index"
-        :ui="{ body: 'p-3 sm:p-4' }"
+    <RecipeIngredientQuickAdd
+      :ingredients="ingredientOptions"
+      @add="emit('quickAdd', $event)"
+    />
+    <section
+      v-for="group in groups"
+      :key="group.id"
+      class="flex flex-col gap-2"
+    >
+      <div
+        class="flex items-center gap-2"
       >
-        <div
-          class="
-            grid items-end gap-3
-            sm:grid-cols-[90px_100px_minmax(180px,1fr)_minmax(130px,0.7fr)_120px_120px_auto]
-          "
+        <UIcon
+          :name="group.icon"
+          class="size-4 text-primary"
+        /><h3
+          class="font-medium text-highlighted"
         >
-          <UFormField label="Amount">
-            <UInput
-              v-model.number="item.amount"
-              type="number"
-              min="0"
-              step="any"
-              placeholder="—"
-            />
-          </UFormField>
-          <UFormField label="Unit">
-            <USelectMenu
-              v-model="item.unit"
-              :items="units"
-              class="w-full"
-              placeholder="Unit"
-            />
-          </UFormField>
-          <UFormField label="Ingredient">
-            <USelectMenu
-              v-model="item.ingredientId"
-              :items="ingredientOptions"
-              :filter-fields="['name']"
-              value-key="id"
-              label-key="name"
-              create-item="always"
-              class="w-full"
-              placeholder="Search or create an ingredient"
+          {{ group.name }}
+        </h3>
+      </div><VueDraggable
+        :list="group.rows"
+        :animation="200"
+        item-key="ingredientId"
+        tag="div"
+        handle="[data-recipe-ingredient-drag-handle]"
+        ghost-class="recipe-ingredient-ghost"
+        class="flex flex-col gap-2"
+        @end="syncOrder"
+      >
+        <template #item="{ element: item }">
+          <div>
+            <RecipeIngredientCard
+              :item="item"
+              :ingredient-options="ingredientOptions"
               @create="emit('create', $event, item)"
-              @update:model-value="emit('setDetails', item)"
-            />
-          </UFormField>
-          <UFormField
-            label="Preparation"
-            hint="Optional"
-          >
-            <UInput
-              v-model="item.note"
-              placeholder="finely diced"
-            />
-          </UFormField>
-          <UFormField label="Calories">
-            <UInput
-              v-model.number="item.calories"
-              type="number"
-              min="0"
-              placeholder="e.g. 144"
-              @blur="emit('saveDetails', item)"
-            />
-          </UFormField>
-          <UFormField :label="`Per ${item.calorieUnit || item.unit || 'unit'}`">
-            <UInput
-              v-model.number="item.calorieAmount"
-              type="number"
-              min="0.001"
-              step="any"
-              placeholder="e.g. 100"
-              @blur="emit('saveDetails', item)"
-            />
-          </UFormField>
-          <div class="flex items-center gap-1 pb-0.5">
-            <UCheckbox
-              v-model="item.isOptional"
-              label="Optional"
-            /><UButton
-              v-if="ingredients.length > 1"
-              icon="i-lucide-trash-2"
-              color="neutral"
-              variant="ghost"
-              aria-label="Remove ingredient"
-              @click="emit('remove', index)"
+              @remove="emit('remove', item)"
+              @select="emit('setDetails', item)"
+              @update:item="Object.assign(item, $event)"
             />
           </div>
-        </div>
-      </UCard>
-    </div>
+        </template>
+      </VueDraggable>
+    </section>
+    <UEmpty
+      v-if="groups.length === 0"
+      icon="i-lucide-shopping-basket"
+      title="Start your ingredient list"
+      description="Add the first ingredient to build your recipe."
+    />
   </section>
 </template>
+
+<style scoped>
+.recipe-ingredient-ghost {
+  opacity: 0.45;
+}
+</style>

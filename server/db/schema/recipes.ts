@@ -129,6 +129,20 @@ export const recipeStep = recipesSchema.table('recipe_step', {
   type: recipeStepType('type').notNull().default('normal'),
 })
 
+export const recipeCooking = recipesSchema.table('recipe_cooking', {
+  id: uuid('id').defaultRandom().primaryKey(),
+  createdById: text('created_by_id').notNull().references(() => user.id, {
+    onDelete: 'cascade',
+  }),
+  recipeId: uuid('recipe_id').notNull().references(() => recipe.id, {
+    onDelete: 'cascade',
+  }),
+  createdAt: timestamp('created_at', {
+    withTimezone: true,
+  }).notNull().defaultNow(),
+  note: text('note'),
+})
+
 export const recipeShare = recipesSchema.table('recipe_share', {
   recipeId: uuid('recipe_id').notNull().references(() => recipe.id, {
     onDelete: 'cascade',

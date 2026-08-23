@@ -8,12 +8,7 @@ definePageMeta({
 </script>
 
 <template>
-  <section
-    class="
-      w-full py-4
-      sm:py-8
-    "
-  >
+  <PageShell>
     <RecipeEditor />
-  </section>
+  </PageShell>
 </template>

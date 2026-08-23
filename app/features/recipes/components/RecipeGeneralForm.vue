@@ -122,14 +122,19 @@ const recipe = defineModel<RecipeForm>('recipe', {
                   :key="tag"
                   color="neutral"
                   variant="subtle"
-                  class="flex items-center gap-1"
+                  class="
+                    flex flex-none items-center gap-1 px-0 py-0.5 pl-2
+                    text-nowrap
+                  "
                 >
-                  {{ tag }}<UButton
+                  {{ tag }}
+                  <UButton
                     as="span"
                     icon="i-lucide-x"
                     color="neutral"
                     variant="ghost"
                     size="xs"
+                    class="my-0 py-0"
                     aria-label="Remove tag"
                     @click.stop="emit('removeTag', tag)"
                   />

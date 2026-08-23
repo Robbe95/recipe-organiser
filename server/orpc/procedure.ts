@@ -40,3 +40,5 @@ export const protectedProcedure = procedure.use(({
     },
   })
 })
+
+export const publicProcedure = procedure

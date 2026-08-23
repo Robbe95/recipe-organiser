@@ -3,36 +3,52 @@ import IngredientTypeIconPicker from './IngredientTypeIconPicker.vue'
 
 const props = defineProps<{
   editing: boolean
-  open: boolean
+  initialForm: {
+    name: string
+    icon: string
+  }
 }>()
 
 const emit = defineEmits<{
-  'submit': []
-  'update:open': [value: boolean]
+  close: [form?: {
+    name: string
+    icon: string
+  }]
 }>()
 
-const form = defineModel<{
+const form = reactive<{
   name: string
   icon: string
-}>('form', {
-  required: true,
+}>({
+  ...props.initialForm,
 })
 
-const open = computed({
-  get: () => props.open,
-  set: (value) => emit('update:open', value),
+watch(() => props.initialForm, (value) => {
+  Object.assign(form, value)
+}, {
+  deep: true,
+  immediate: true,
 })
+
+function submit() {
+  if (!form.name.trim()) {
+    return
+  }
+
+  emit('close', {
+    ...form,
+  })
+}
 </script>
 
 <template>
   <UModal
-    v-model:open="open"
     :title="editing ? 'Edit ingredient type' : 'New ingredient type'"
   >
     <template #body>
       <form
         class="flex flex-col gap-4"
-        @submit.prevent="emit('submit')"
+        @submit.prevent="submit"
       >
         <UFormField
           label="Name"
@@ -51,7 +67,7 @@ const open = computed({
             label="Cancel"
             color="neutral"
             variant="ghost"
-            @click="open = false"
+            @click="emit('close')"
           />
           <UButton
             type="submit"

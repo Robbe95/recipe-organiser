@@ -1,6 +1,9 @@
 <script setup lang="ts">
 /* eslint-disable @intlify/vue-i18n/no-raw-text */
+import VueDraggable from 'vuedraggable'
+
 import type { StepRow } from './recipeEditorTypes'
+import RecipeStepCard from './RecipeStepCard.vue'
 
 const emit = defineEmits<{
   add: [type?: StepRow['type']]
@@ -9,24 +12,14 @@ const emit = defineEmits<{
 const steps = defineModel<StepRow[]>('steps', {
   required: true,
 })
-const stepTypes = [
-  {
-    label: 'Normal step',
-    value: 'normal',
-  },
-  {
-    label: 'Timed step',
-    value: 'timer',
-  },
-  {
-    label: 'Step group',
-    value: 'group',
-  },
-]
+
+function removeStep(step: StepRow) {
+  emit('remove', steps.value.indexOf(step))
+}
 </script>
 
 <template>
-  <section class="flex flex-col gap-4">
+  <section class="flex flex-col gap-5">
     <div class="flex items-end justify-between gap-4">
       <div
         class="flex flex-col gap-1"
@@ -38,7 +31,7 @@ const stepTypes = [
         </h2><p
           class="text-sm text-toned"
         >
-          Use timers for hands-off cooking, and groups to keep a longer recipe calm.
+          Drag to reorder. Add as much detail as you need to each instruction.
         </p>
       </div><div
         class="flex items-center gap-2"
@@ -56,51 +49,37 @@ const stepTypes = [
         />
       </div>
     </div>
-    <div class="flex flex-col gap-3">
-      <UCard
-        v-for="(step, index) in steps"
-        :key="index"
-        :ui="{ body: 'p-3 sm:p-4' }"
-      >
-        <div
-          class="flex items-start gap-3"
-        >
-          <span
-            class="
-              grid size-8 shrink-0 place-items-center rounded-full bg-muted
-              text-sm font-semibold text-toned
-            "
-          >{{ index + 1 }}</span><div
-            class="
-              grid min-w-0 flex-1 gap-3
-              sm:grid-cols-[150px_minmax(0,1fr)_110px]
-            "
-          >
-            <USelect
-              v-model="step.type"
-              :items="stepTypes"
-              class="w-full"
-              value-key="value"
-            /><UInput
-              v-model="step.instruction"
-              :placeholder="step.type === 'group' ? 'e.g. Prepare the vegetables' : 'What needs to happen?'"
-            /><UInput
-              v-if="step.type === 'timer'"
-              v-model.number="step.durationMinutes"
-              type="number"
-              min="1"
-              placeholder="Minutes"
-            />
-          </div><UButton
-            v-if="steps.length > 1"
-            icon="i-lucide-trash-2"
-            color="neutral"
-            variant="ghost"
-            aria-label="Remove step"
-            @click="emit('remove', index)"
+    <VueDraggable
+      v-model="steps"
+      :animation="200"
+      item-key="clientId"
+      tag="div"
+      handle="[data-recipe-step-drag-handle]"
+      ghost-class="recipe-step-ghost"
+      class="flex flex-col gap-3"
+    >
+      <template #item="{ element: step, index }">
+        <div>
+          <RecipeStepCard
+            :step="step"
+            :index="index"
+            @update:step="Object.assign(step, $event)"
+            @remove="removeStep(step)"
           />
         </div>
-      </UCard>
-    </div>
+      </template>
+    </VueDraggable>
+    <UEmpty
+      v-if="steps.length === 0"
+      icon="i-lucide-list-ordered"
+      title="Add the first step"
+      description="Start with a simple instruction, then drag it wherever it belongs."
+    />
   </section>
 </template>
+
+<style scoped>
+.recipe-step-ghost {
+  opacity: 0.45;
+}
+</style>

@@ -1,24 +1,15 @@
 <script setup lang="ts">
 /* eslint-disable @intlify/vue-i18n/no-raw-text */
 const props = defineProps<{
-  editing: boolean
-  initialForm: {
-    typeId: string
-    name: string
-    calorieAmount: number | undefined
-    calories: number | undefined
-    defaultUnit: string
-  }
-  types: Array<{
-    id: string
-    name: string
-  }>
+  name: string
+  types: Array<{ id: string
+    name: string }>
   units: string[]
 }>()
 
 const emit = defineEmits<{
-  close: [form?: {
-    typeId: string
+  close: [details?: {
+    typeId: string | null
     name: string
     calorieAmount: number | undefined
     calories: number | undefined
@@ -26,21 +17,12 @@ const emit = defineEmits<{
   }]
 }>()
 
-const form = reactive<{
-  typeId: string
-  name: string
-  calorieAmount: number | undefined
-  calories: number | undefined
-  defaultUnit: string
-}>({
-  ...props.initialForm,
-})
-
-watch(() => props.initialForm, (value) => {
-  Object.assign(form, value)
-}, {
-  deep: true,
-  immediate: true,
+const form = reactive({
+  typeId: '',
+  name: props.name,
+  calorieAmount: undefined as number | undefined,
+  calories: undefined as number | undefined,
+  defaultUnit: '',
 })
 
 function submit() {
@@ -50,27 +32,36 @@ function submit() {
 
   emit('close', {
     ...form,
+    typeId: form.typeId || null,
+    name: form.name.trim(),
   })
+}
+
+function handleOpenChange(open: boolean) {
+  if (!open) {
+    emit('close')
+  }
 }
 </script>
 
 <template>
   <UModal
-    :title="editing ? 'Edit ingredient' : 'New ingredient'"
+    title="Add ingredient details"
+    @update:open="handleOpenChange"
   >
     <template #body>
       <form
         class="flex flex-col gap-4"
         @submit.prevent="submit"
       >
+        <p class="text-sm text-toned">
+          Save details for this ingredient so it is ready for future recipes.
+        </p>
         <UFormField
-          label="Name"
+          label="Ingredient"
           required
         >
-          <UInput
-            v-model="form.name"
-            class="w-full"
-          />
+          <UInput v-model="form.name" />
         </UFormField>
         <UFormField label="Ingredient type">
           <USelectMenu
@@ -98,17 +89,18 @@ function submit() {
               type="number"
               min="0"
               placeholder="40"
-            />
-            <span class="shrink-0 text-sm text-toned">calories per</span>
-            <UInput
+            /><span
+              class="shrink-0 text-sm text-toned"
+            >per</span><UInput
               v-model.number="form.calorieAmount"
               class="min-w-0 flex-1"
               type="number"
               min="0.001"
               step="any"
               placeholder="100"
-            />
-            <span class="shrink-0 text-sm text-toned">{{ form.defaultUnit || 'unit' }}</span>
+            /><span
+              class="shrink-0 text-sm text-toned"
+            >{{ form.defaultUnit || 'unit' }}</span>
           </div>
         </UFormField>
         <div class="flex justify-end gap-2">
@@ -117,10 +109,9 @@ function submit() {
             color="neutral"
             variant="ghost"
             @click="emit('close')"
-          />
-          <UButton
+          /><UButton
+            label="Add ingredient"
             type="submit"
-            label="Save ingredient"
             icon="i-lucide-check"
           />
         </div>

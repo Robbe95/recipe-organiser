@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import PageShell from '~/components/page/PageShell.vue'
 import RecipeEditor from '~/features/recipes/components/RecipeEditor.vue'
 
 definePageMeta({
@@ -11,12 +12,7 @@ const recipeId = computed(() => Array.isArray(route.params.id) ? route.params.id
 </script>
 
 <template>
-  <section
-    class="
-      w-full py-4
-      sm:py-8
-    "
-  >
+  <PageShell>
     <RecipeEditor :recipe-id="recipeId" />
-  </section>
+  </PageShell>
 </template>

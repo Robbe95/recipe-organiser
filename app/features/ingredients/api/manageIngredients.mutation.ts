@@ -20,6 +20,9 @@ export function useLibraryIngredientMutations() {
     create: useMutation(orpc.recipes.createIngredient.mutationOptions({
       onSuccess,
     })),
+    delete: useMutation(orpc.recipes.deleteIngredient.mutationOptions({
+      onSuccess,
+    })),
     update: useMutation(orpc.recipes.updateIngredient.mutationOptions({
       onSuccess,
     })),
@@ -31,6 +34,9 @@ export function useIngredientTypeMutations() {
 
   return {
     create: useMutation(orpc.recipes.createIngredientType.mutationOptions({
+      onSuccess,
+    })),
+    delete: useMutation(orpc.recipes.deleteIngredientType.mutationOptions({
       onSuccess,
     })),
     update: useMutation(orpc.recipes.updateIngredientType.mutationOptions({
