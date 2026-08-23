@@ -29,13 +29,25 @@
           </span>
           Kitchen
         </NuxtLink>
-        <div class="flex items-center gap-2">
+        <div class="flex shrink-0 items-center gap-2">
           <UButton
             to="/dashboard"
             label="Manage recipes"
             icon="i-lucide-pencil"
             color="neutral"
             variant="ghost"
+            class="
+              hidden
+              sm:inline-flex
+            "
+          />
+          <UButton
+            to="/dashboard"
+            icon="i-lucide-pencil"
+            color="neutral"
+            variant="ghost"
+            aria-label="Manage recipes"
+            class="sm:hidden"
           />
         </div>
       </div>

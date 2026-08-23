@@ -20,7 +20,12 @@ function removeStep(step: StepRow) {
 
 <template>
   <section class="flex flex-col gap-5">
-    <div class="flex items-end justify-between gap-4">
+    <div
+      class="
+        flex flex-col items-start gap-3
+        sm:flex-row sm:items-end sm:justify-between sm:gap-4
+      "
+    >
       <div
         class="flex flex-col gap-1"
       >
@@ -34,7 +39,7 @@ function removeStep(step: StepRow) {
           Drag to reorder. Add as much detail as you need to each instruction.
         </p>
       </div><div
-        class="flex items-center gap-2"
+        class="flex flex-wrap items-center gap-2"
       >
         <UButton
           label="Step"

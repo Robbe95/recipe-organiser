@@ -1,5 +1,6 @@
 <script setup lang="ts">
 /* eslint-disable @intlify/vue-i18n/no-raw-text */
+import type { DropdownMenuItem } from '@nuxt/ui'
 import { useQueryCache } from '@pinia/colada'
 
 import ConfirmDeleteModal from '~/components/ConfirmDeleteModal.vue'
@@ -229,6 +230,35 @@ function caloriesPerPortion(calories: number, portions: number) {
   return Math.round(calories / portions)
 }
 
+function recipeOverflowItems(recipe: {
+  id: string
+  isFavorite: boolean
+  name: string
+}): DropdownMenuItem[][] {
+  return [
+    [
+      {
+        icon: recipe.isFavorite ? 'i-lucide-heart-off' : 'i-lucide-heart',
+        label: recipe.isFavorite ? 'Remove favorite' : 'Add favorite',
+        onSelect: () => setRecipeFavoriteMutation.mutate({
+          id: recipe.id,
+          isFavorite: !recipe.isFavorite,
+        }),
+      },
+      {
+        icon: 'i-lucide-copy',
+        label: 'Duplicate recipe',
+        onSelect: () => duplicateRecipe(recipe),
+      },
+      {
+        icon: 'i-lucide-archive',
+        label: 'Archive recipe',
+        onSelect: () => archiveRecipe(recipe),
+      },
+    ],
+  ]
+}
+
 function selectedFirstOptions(items: string[], selected: string[], allLabel: string) {
   if (selected.length === 0) {
     return items
@@ -277,6 +307,33 @@ function selectedFirstOptions(items: string[], selected: string[], allLabel: str
           label="New recipe"
           icon="i-lucide-plus"
           to="/recipes/new"
+        />
+      </template>
+      <template #primary-action>
+        <UButton
+          label="New recipe"
+          icon="i-lucide-plus"
+          to="/recipes/new"
+        />
+      </template>
+      <template #overflow-actions>
+        <UButton
+          :label="showArchived ? 'Active recipes' : 'Archived recipes'"
+          icon="i-lucide-archive"
+          color="neutral"
+          variant="ghost"
+          class="justify-start"
+          block
+          @click="showArchived = !showArchived"
+        />
+        <UButton
+          label="Import recipe"
+          icon="i-lucide-sparkles"
+          color="neutral"
+          variant="ghost"
+          class="justify-start"
+          block
+          @click="importRecipe"
         />
       </template>
     </PageHeader>
@@ -328,7 +385,7 @@ function selectedFirstOptions(items: string[], selected: string[], allLabel: str
         />
         <div
           class="
-            flex items-center gap-2
+            flex flex-wrap items-center gap-2
             md:col-span-4
           "
         >
@@ -352,7 +409,7 @@ function selectedFirstOptions(items: string[], selected: string[], allLabel: str
                 value: 'cook-time' },
             ]"
             value-key="value"
-            class="w-44"
+            class="w-44 max-w-full"
             placeholder="Sort recipes"
           />
           <UButton
@@ -474,10 +531,8 @@ function selectedFirstOptions(items: string[], selected: string[], allLabel: str
           </NuxtLink>
           <div
             class="
-              flex shrink-0 items-center gap-0.5 pr-2 opacity-100
-              sm:pr-3 sm:opacity-0 sm:transition-opacity
-              sm:group-focus-within:opacity-100
-              sm:group-hover:opacity-100
+              flex shrink-0 items-center pr-2
+              sm:hidden
             "
           >
             <UButton
@@ -489,43 +544,79 @@ function selectedFirstOptions(items: string[], selected: string[], allLabel: str
               aria-label="Restore recipe"
               @click="restoreRecipe(recipe)"
             />
+            <template v-else>
+              <UButton
+                :to="`/recipes/${recipe.id}/edit`"
+                icon="i-lucide-pencil"
+                color="neutral"
+                variant="ghost"
+                size="sm"
+                aria-label="Edit recipe"
+              />
+              <UDropdownMenu :items="recipeOverflowItems(recipe)">
+                <UButton
+                  icon="i-lucide-ellipsis-vertical"
+                  color="neutral"
+                  variant="ghost"
+                  size="sm"
+                  aria-label="More recipe actions"
+                />
+              </UDropdownMenu>
+            </template>
+          </div>
+          <div
+            class="
+              hidden shrink-0 items-center gap-0.5 pr-3 opacity-0
+              transition-opacity
+              group-focus-within:opacity-100
+              group-hover:opacity-100
+              sm:flex
+            "
+          >
             <UButton
-              v-else
-              :icon="recipe.isFavorite ? 'i-lucide-heart-off' : 'i-lucide-heart'"
-              :color="recipe.isFavorite ? 'primary' : 'neutral'"
-              :aria-label="recipe.isFavorite ? 'Remove favorite' : 'Add favorite'"
+              v-if="showArchived"
+              icon="i-lucide-archive-restore"
+              color="primary"
               variant="ghost"
               size="sm"
-              @click="setRecipeFavoriteMutation.mutate({ id: recipe.id,
-                                                         isFavorite: !recipe.isFavorite })"
+              aria-label="Restore recipe"
+              @click="restoreRecipe(recipe)"
             />
-            <UButton
-              v-if="!showArchived"
-              :to="`/recipes/${recipe.id}/edit`"
-              icon="i-lucide-pencil"
-              color="neutral"
-              variant="ghost"
-              size="sm"
-              aria-label="Edit recipe"
-            />
-            <UButton
-              v-if="!showArchived"
-              icon="i-lucide-copy"
-              color="neutral"
-              variant="ghost"
-              size="sm"
-              aria-label="Duplicate recipe"
-              @click="duplicateRecipe(recipe)"
-            />
-            <UButton
-              v-if="!showArchived"
-              icon="i-lucide-archive"
-              color="neutral"
-              variant="ghost"
-              size="sm"
-              aria-label="Archive recipe"
-              @click="archiveRecipe(recipe)"
-            />
+            <template v-else>
+              <UButton
+                :icon="recipe.isFavorite ? 'i-lucide-heart-off' : 'i-lucide-heart'"
+                :color="recipe.isFavorite ? 'primary' : 'neutral'"
+                :aria-label="recipe.isFavorite ? 'Remove favorite' : 'Add favorite'"
+                variant="ghost"
+                size="sm"
+                @click="setRecipeFavoriteMutation.mutate({ id: recipe.id,
+                                                           isFavorite: !recipe.isFavorite })"
+              />
+              <UButton
+                :to="`/recipes/${recipe.id}/edit`"
+                icon="i-lucide-pencil"
+                color="neutral"
+                variant="ghost"
+                size="sm"
+                aria-label="Edit recipe"
+              />
+              <UButton
+                icon="i-lucide-copy"
+                color="neutral"
+                variant="ghost"
+                size="sm"
+                aria-label="Duplicate recipe"
+                @click="duplicateRecipe(recipe)"
+              />
+              <UButton
+                icon="i-lucide-archive"
+                color="neutral"
+                variant="ghost"
+                size="sm"
+                aria-label="Archive recipe"
+                @click="archiveRecipe(recipe)"
+              />
+            </template>
           </div>
         </article>
       </div>

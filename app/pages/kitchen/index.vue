@@ -1,6 +1,7 @@
 <script setup lang="ts">
 /* eslint-disable @intlify/vue-i18n/no-raw-text */
 import { useRecipesQuery } from '~/features/recipes/api/listRecipes.query'
+import CancelCookingModal from '~/features/recipes/components/CancelCookingModal.vue'
 
 definePageMeta({
   layout: 'kitchen',
@@ -12,6 +13,8 @@ const search = ref('')
 const selectedTags = ref<string[]>([])
 const selectedIngredients = ref<string[]>([])
 const resumableRecipeIds = ref<string[]>([])
+const overlay = useOverlay()
+const cancelCookingModal = overlay.create(CancelCookingModal)
 const tagOptions = computed(() => Array.from(new Set(recipes.value.flatMap((recipe) => recipe.tags))).sort())
 const ingredientOptions = computed(() => Array.from(new Set(recipes.value
   .flatMap((recipe) => recipe.ingredients))).sort())
@@ -33,6 +36,22 @@ const filteredRecipes = computed(() => {
   })
 })
 const resumableRecipes = computed(() => recipes.value.filter((recipe) => resumableRecipeIds.value.includes(recipe.id)))
+
+async function cancelCooking(recipe: {
+  id: string
+  name: string
+}) {
+  const confirmed = await cancelCookingModal.open({
+    recipeName: recipe.name,
+  })
+
+  if (!confirmed) {
+    return
+  }
+
+  localStorage.removeItem(`recipe-organiser:cooking:${recipe.id}`)
+  resumableRecipeIds.value = resumableRecipeIds.value.filter((id) => id !== recipe.id)
+}
 
 onMounted(() => {
   resumableRecipeIds.value = Array.from({
@@ -94,13 +113,23 @@ onMounted(() => {
           :key="recipe.id"
         >
           <div class="flex items-center justify-between gap-3">
-            <span class="font-medium text-highlighted">{{ recipe.name }}</span>
-            <UButton
-              :to="`/kitchen/recipes/${recipe.id}`"
-              label="Resume"
-              icon="i-lucide-play"
-              size="sm"
-            />
+            <span class="min-w-0 truncate font-medium text-highlighted">{{ recipe.name }}</span>
+            <div class="flex shrink-0 items-center gap-1">
+              <UButton
+                :to="`/kitchen/recipes/${recipe.id}`"
+                label="Resume"
+                icon="i-lucide-play"
+                size="sm"
+              />
+              <UButton
+                icon="i-lucide-x"
+                color="neutral"
+                variant="ghost"
+                size="sm"
+                aria-label="Cancel cooking"
+                @click="cancelCooking(recipe)"
+              />
+            </div>
           </div>
         </UPageCard>
       </div>

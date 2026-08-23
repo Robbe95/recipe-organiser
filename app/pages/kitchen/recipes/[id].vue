@@ -271,6 +271,12 @@ watch([
   phase,
   stepIndex,
 ], () => {
+  if (phase.value === 'complete') {
+    localStorage.removeItem(sessionKey)
+
+    return
+  }
+
   localStorage.setItem(sessionKey, JSON.stringify({
     activeTimers: activeTimers.value,
     completedStepIndexes: completedStepIndexes.value,
@@ -374,7 +380,12 @@ onBeforeUnmount(() => {
         </div>
       </div>
       <div class="flex flex-col gap-3">
-        <div class="flex items-center justify-between gap-3">
+        <div
+          class="
+            flex flex-col items-start gap-1
+            sm:flex-row sm:items-center sm:justify-between sm:gap-3
+          "
+        >
           <h2 class="text-xl font-semibold text-highlighted">
             Ingredients
           </h2>
@@ -462,8 +473,8 @@ onBeforeUnmount(() => {
             :transition="{ duration: 0.22,
                            ease: 'easeOut' }"
             class="
-              flex min-h-88 flex-2 flex-col justify-between gap-5 rounded-4xl
-              bg-elevated/70 p-6 shadow-sm
+              flex flex-2 flex-col justify-between gap-5 rounded-4xl
+              bg-elevated/70 p-5 shadow-sm
               sm:min-h-128 sm:p-10
             "
           >
@@ -477,113 +488,139 @@ onBeforeUnmount(() => {
               </div>
               <p
                 class="
-                  max-w-4xl text-2xl/9 font-medium text-highlighted
+                  max-w-4xl text-xl/8 font-medium wrap-break-word
+                  text-highlighted
                   sm:text-4xl/12
                 "
               >
                 {{ currentStep?.instruction }}
               </p>
             </div>
-            <UButton
-              v-if="currentStep?.type === 'timer' && currentStep.durationSeconds"
-              :disabled="activeTimers.some((timer) => timer.id === currentStep?.id)"
-              :label="activeTimers.some((timer) => timer.id === currentStep?.id) ? 'Timer running' : `Start ${formatTime(currentStep.durationSeconds)} timer`"
-              icon="i-lucide-timer"
-              class="self-start rounded-full px-5"
-              @click="startTimer"
-            />
-            <UButton
-              :label="completedStepIndexes.includes(stepIndex) ? 'Completed' : 'Mark complete'"
-              :icon="completedStepIndexes.includes(stepIndex) ? 'i-lucide-check' : 'i-lucide-circle-check'"
-              color="neutral"
-              variant="soft"
-              class="self-start rounded-full px-5"
-              @click="toggleStepComplete(stepIndex)"
-            />
-          </Motion>
-        </AnimatePresence>
-        <AnimatePresence mode="popLayout">
-          <Motion
-            v-if="nextStep"
-            :key="nextStep.id"
-            :animate="{ opacity: 0.65,
-                        y: 0 }"
-            :exit="{ opacity: 0,
-                     y: -12 }"
-            :initial="{ opacity: 0,
-                        y: 12 }"
-            :transition="{ duration: 0.2,
-                           ease: 'easeOut' }"
-            class="
-              flex min-h-32 flex-1 flex-col justify-center gap-2 rounded-3xl
-              bg-elevated/50 p-6
-            "
-          >
-            <p class="text-xs font-medium tracking-wide text-toned uppercase">
-              Up next
-            </p>
-            <p class="line-clamp-3 text-lg text-highlighted">
-              {{ nextStep.instruction }}
-            </p>
-          </Motion>
-        </AnimatePresence>
-        <div
-          class="
-            flex flex-col gap-3
-            lg:hidden
-          "
-        >
-          <Motion
-            v-if="timerCards.length > 0"
-            :animate="{ opacity: 1,
-                        y: 0 }"
-            :initial="{ opacity: 0,
-                        y: -8 }"
-            :transition="{ duration: 0.2,
-                           ease: 'easeOut' }"
-            class="
-              flex items-center justify-between rounded-2xl bg-elevated px-4
-              py-3 shadow-sm
-            "
-          >
-            <span class="text-sm text-toned">{{ timerCards[0]?.label }}</span>
-            <div class="flex items-center gap-1">
-              <span class="font-semibold text-highlighted tabular-nums">{{ formatTime(timerCards[0]?.remaining || 0) }}</span>
+            <div class="flex flex-wrap items-center gap-2">
               <UButton
-                :icon="timerCards[0]?.paused ? 'i-lucide-play' : 'i-lucide-pause'"
-                :aria-label="timerCards[0]?.paused ? 'Resume timer' : 'Pause timer'"
-                color="neutral"
-                variant="ghost"
-                size="xs"
-                @click="timerCards[0] && toggleTimer(timerCards[0].id)"
+                v-if="currentStep?.type === 'timer' && currentStep.durationSeconds"
+                :disabled="activeTimers.some((timer) => timer.id === currentStep?.id)"
+                :label="activeTimers.some((timer) => timer.id === currentStep?.id) ? 'Timer running' : `Start ${formatTime(currentStep.durationSeconds)} timer`"
+                icon="i-lucide-timer"
+                class="
+                  rounded-full px-4
+                  sm:px-5
+                "
+                @click="startTimer"
               />
               <UButton
-                icon="i-lucide-x"
-                aria-label="Remove timer"
+                :label="completedStepIndexes.includes(stepIndex) ? 'Completed' : 'Mark complete'"
+                :icon="completedStepIndexes.includes(stepIndex) ? 'i-lucide-check' : 'i-lucide-circle-check'"
                 color="neutral"
-                variant="ghost"
-                size="xs"
-                @click="timerCards[0] && removeTimer(timerCards[0].id)"
+                variant="soft"
+                class="
+                  rounded-full px-4
+                  sm:px-5
+                "
+                @click="toggleStepComplete(stepIndex)"
               />
             </div>
           </Motion>
+        </AnimatePresence>
+        <div class="flex flex-col gap-3">
+          <AnimatePresence mode="popLayout">
+            <Motion
+              v-if="nextStep"
+              :key="nextStep.id"
+              :animate="{ opacity: 0.65,
+                          y: 0 }"
+              :exit="{ opacity: 0,
+                       y: -12 }"
+              :initial="{ opacity: 0,
+                          y: 12 }"
+              :transition="{ duration: 0.2,
+                             ease: 'easeOut' }"
+              class="
+                flex min-h-32 flex-1 flex-col justify-center gap-2 rounded-3xl
+                bg-elevated/90 p-6 shadow-sm backdrop-blur-sm
+              "
+            >
+              <p class="text-xs font-medium tracking-wide text-toned uppercase">
+                Up next
+              </p>
+              <p class="line-clamp-3 text-lg text-highlighted">
+                {{ nextStep.instruction }}
+              </p>
+            </Motion>
+          </AnimatePresence>
         </div>
-        <div class="flex items-center justify-between gap-3">
-          <UButton
-            :disabled="stepIndex === 0"
-            label="Back"
-            icon="i-lucide-arrow-left"
-            color="neutral"
-            variant="soft"
-            @click="previous"
-          />
-          <UButton
-            :disabled="completeRecipeCookingMutation.isLoading.value"
-            :loading="completeRecipeCookingMutation.isLoading.value"
-            :label="stepIndex >= recipe.steps.length - 1 ? 'Finish recipe' : 'Next step'"
-            trailing-icon="i-lucide-arrow-right"
-            @click="stepIndex >= recipe.steps.length - 1 ? finishCooking() : next()"
-          />
+        <div
+          class="
+            sticky bottom-0 z-10 -mx-4 -mb-6 flex flex-col gap-0 bg-default/95
+            px-4 backdrop-blur-sm
+            sm:-mb-8
+            lg:static lg:mx-0 lg:mb-0 lg:flex-row lg:items-center
+            lg:justify-between lg:bg-transparent lg:p-0 lg:backdrop-blur-none
+          "
+        >
+          <div
+            v-if="timerCards.length > 0"
+            class="
+              flex flex-col gap-0 border-b border-default py-1
+              lg:hidden
+            "
+          >
+            <AnimatePresence>
+              <Motion
+                v-for="timer in timerCards"
+                :key="timer.id"
+                :animate="{ opacity: 1,
+                            y: 0 }"
+                :exit="{ opacity: 0,
+                         y: -8 }"
+                :initial="{ opacity: 0,
+                            y: -8 }"
+                :transition="{ duration: 0.2,
+                               ease: 'easeOut' }"
+                class="flex items-center justify-between gap-2 p-1"
+              >
+                <span class="min-w-0 truncate text-sm text-toned">{{ timer.label }}</span>
+                <div class="flex shrink-0 items-center gap-1">
+                  <span class="font-semibold text-highlighted tabular-nums">{{ formatTime(timer.remaining) }}</span>
+                  <UButton
+                    :icon="timer.paused ? 'i-lucide-play' : 'i-lucide-pause'"
+                    :aria-label="timer.paused ? 'Resume timer' : 'Pause timer'"
+                    color="neutral"
+                    variant="ghost"
+                    size="xs"
+                    @click="toggleTimer(timer.id)"
+                  />
+                  <UButton
+                    icon="i-lucide-x"
+                    aria-label="Remove timer"
+                    color="neutral"
+                    variant="ghost"
+                    size="xs"
+                    @click="removeTimer(timer.id)"
+                  />
+                </div>
+              </Motion>
+            </AnimatePresence>
+          </div>
+          <div class="flex w-full items-center justify-between gap-3 py-2">
+            <UButton
+              :disabled="stepIndex === 0"
+              label="Back"
+              icon="i-lucide-arrow-left"
+              color="neutral"
+              variant="soft"
+              size="sm"
+              @click="previous"
+            />
+            <UButton
+              :disabled="completeRecipeCookingMutation.isLoading.value"
+              :loading="completeRecipeCookingMutation.isLoading.value"
+              :label="stepIndex >= recipe.steps.length - 1 ? 'Finish recipe' : 'Next step'"
+              trailing-icon="i-lucide-arrow-right"
+              size="sm"
+              @click="stepIndex >= recipe.steps.length - 1 ? finishCooking() : next()"
+            />
+          </div>
         </div>
       </div>
       <aside

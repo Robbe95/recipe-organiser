@@ -26,7 +26,7 @@ const emit = defineEmits<{
         :name="type.icon"
         class="mb-2 size-5 text-primary"
       /><p
-        class="mr-auto font-medium text-highlighted"
+        class="mr-auto min-w-0 truncate font-medium text-highlighted"
       >
         {{ type.name }}
       </p>

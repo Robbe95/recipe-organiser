@@ -1,12 +1,15 @@
 <script setup lang="ts">
 /* eslint-disable @intlify/vue-i18n/no-raw-text */
 import type { DropdownMenuItem } from '@nuxt/ui'
+import { useMediaQuery } from '@vueuse/core'
 
 import { useSignOutMutation } from '~/features/auth/api/signOut.mutation'
 import KitchenSettingsModal from '~/features/settings/components/KitchenSettingsModal.vue'
 import { authClient } from '~/lib/authClient'
 
 const open = ref(true)
+const route = useRoute()
+const isMobile = useMediaQuery('(max-width: 1023px)')
 const signOutMutation = useSignOutMutation()
 const session = authClient.useSession()
 const overlay = useOverlay()
@@ -68,6 +71,12 @@ async function signOut() {
   await signOutMutation.mutateAsync()
   await navigateTo('/')
 }
+
+watch(() => route.fullPath, () => {
+  if (isMobile.value) {
+    open.value = false
+  }
+})
 </script>
 
 <template>
@@ -78,27 +87,37 @@ async function signOut() {
       collapsible="icon"
       rail
     >
-      <template #header>
-        <NuxtLink
-          to="/dashboard"
-          class="
-            flex items-center gap-3 text-sm font-bold tracking-tight
-            text-highlighted
-          "
-        >
-          <span
+      <template #header="{ close }">
+        <div class="flex w-full items-center justify-between gap-2">
+          <NuxtLink
+            to="/dashboard"
             class="
-              grid size-9 place-items-center rounded-xl bg-primary text-inverted
-              shadow-sm
+              flex items-center gap-3 text-sm font-bold tracking-tight
+              text-highlighted
             "
           >
-            <UIcon
-              name="i-lucide-chef-hat"
-              class="size-5"
-            />
-          </span>
-          <span class="whitespace-nowrap">Recipe Organiser</span>
-        </NuxtLink>
+            <span
+              class="
+                grid size-9 place-items-center rounded-xl bg-primary
+                text-inverted shadow-sm
+              "
+            >
+              <UIcon
+                name="i-lucide-chef-hat"
+                class="size-5"
+              />
+            </span>
+            <span class="whitespace-nowrap">Recipe Organiser</span>
+          </NuxtLink>
+          <UButton
+            class="lg:hidden"
+            color="neutral"
+            variant="ghost"
+            icon="i-lucide-x"
+            aria-label="Close navigation"
+            @click="close"
+          />
+        </div>
       </template>
 
       <template #default>

@@ -47,12 +47,39 @@ withDefaults(defineProps<{
   </Teleport>
 
   <Teleport to="#dashboard-page-actions">
-    <div
-      v-if="$slots.actions"
-      class="flex items-center gap-2"
-    >
-      <slot name="actions" />
-    </div>
+    <template v-if="$slots.actions">
+      <div
+        class="
+          hidden items-center gap-2
+          sm:flex
+        "
+      >
+        <slot name="actions" />
+      </div>
+      <div
+        class="
+          flex items-center gap-2
+          sm:hidden
+        "
+      >
+        <slot name="primary-action">
+          <slot name="actions" />
+        </slot>
+        <UPopover v-if="$slots['overflow-actions']">
+          <UButton
+            icon="i-lucide-ellipsis-vertical"
+            color="neutral"
+            variant="ghost"
+            aria-label="More page actions"
+          />
+          <template #content>
+            <div class="flex flex-col gap-1 p-1">
+              <slot name="overflow-actions" />
+            </div>
+          </template>
+        </UPopover>
+      </div>
+    </template>
   </Teleport>
 
   <div class="flex flex-col gap-1">

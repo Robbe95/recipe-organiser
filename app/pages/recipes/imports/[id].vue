@@ -99,7 +99,12 @@ async function saveDraft() {
             </UFormField>
           </template>
           <template v-else-if="activeTab === 'ingredients'">
-            <div class="flex items-center justify-between gap-3">
+            <div
+              class="
+                flex flex-col items-start gap-2
+                sm:flex-row sm:items-center sm:justify-between sm:gap-3
+              "
+            >
               <h2 class="font-semibold text-highlighted">
                 Ingredients
               </h2>
