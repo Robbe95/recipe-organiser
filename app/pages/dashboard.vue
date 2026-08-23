@@ -5,8 +5,13 @@ import { useQueryCache } from '@pinia/colada'
 import ConfirmDeleteModal from '~/components/ConfirmDeleteModal.vue'
 import PageHeader from '~/components/page/PageHeader.vue'
 import PageShell from '~/components/page/PageShell.vue'
-import { useDeleteRecipeMutation } from '~/features/recipes/api/deleteRecipe.mutation'
 import { useRecipesQuery } from '~/features/recipes/api/listRecipes.query'
+import {
+  useArchiveRecipeMutation,
+  useDuplicateRecipeMutation,
+  useRestoreRecipeMutation,
+  useSetRecipeFavoriteMutation,
+} from '~/features/recipes/api/recipeOrganization.mutations'
 import RecipeEmptyState from '~/features/recipes/components/RecipeEmptyState.vue'
 import RecipeImportModal from '~/features/recipes/components/RecipeImportModal.vue'
 import { orpc } from '~/lib/orpc'
@@ -16,13 +21,19 @@ definePageMeta({
   middleware: 'auth',
 })
 
-const recipesQuery = useRecipesQuery()
+const showArchived = ref(false)
+const recipesQuery = useRecipesQuery(showArchived)
 const recipes = computed(() => recipesQuery.data.value || [])
 const search = ref('')
 const selectedCuisine = ref<string | undefined>()
 const selectedIngredients = ref<string[]>([])
 const selectedTags = ref<string[]>([])
-const deleteRecipeMutation = useDeleteRecipeMutation()
+const favoritesOnly = ref(false)
+const sort = ref<'calories' | 'cook-time' | 'newest' | 'recently-cooked'>('newest')
+const archiveRecipeMutation = useArchiveRecipeMutation()
+const duplicateRecipeMutation = useDuplicateRecipeMutation()
+const setRecipeFavoriteMutation = useSetRecipeFavoriteMutation()
+const restoreRecipeMutation = useRestoreRecipeMutation()
 const overlay = useOverlay()
 const confirmDeleteModal = overlay.create(ConfirmDeleteModal)
 const recipeImportModal = overlay.create(RecipeImportModal)
@@ -60,28 +71,57 @@ const filteredRecipes = computed(() => {
     const matchesIngredients = selectedIngredients.value.every((ingredient) => recipe.ingredients.includes(ingredient))
     const matchesTags = selectedTags.value.every((tag) => recipe.tags.includes(tag))
 
-    return matchesSearch && matchesCuisine && matchesIngredients && matchesTags
+    return matchesSearch
+      && matchesCuisine
+      && matchesIngredients
+      && matchesTags
+      && (!favoritesOnly.value || recipe.isFavorite)
+  }).sort((left, right) => {
+    if (sort.value === 'calories') {
+      return (left.calories ?? Number.MAX_SAFE_INTEGER) - (right.calories ?? Number.MAX_SAFE_INTEGER)
+    }
+    if (sort.value === 'cook-time') {
+      return (left.cookTimeMinutes ?? Number.MAX_SAFE_INTEGER) - (right.cookTimeMinutes ?? Number.MAX_SAFE_INTEGER)
+    }
+    if (sort.value === 'recently-cooked') {
+      return new Date(right.lastCookedAt || 0).getTime() - new Date(left.lastCookedAt || 0).getTime()
+    }
+
+    return new Date(right.createdAt).getTime() - new Date(left.createdAt).getTime()
   })
 })
 const hasFilters = computed(() => Boolean(
   search.value.trim()
   || selectedCuisine.value
   || selectedIngredients.value.length > 0
-  || selectedTags.value.length > 0,
+  || selectedTags.value.length > 0
+  || favoritesOnly.value,
 ))
 
-async function deleteRecipe(recipe: { id: string
+async function archiveRecipe(recipe: { id: string
   name: string }) {
   const confirmed = await confirmDeleteModal.open({
-    title: 'Delete recipe?',
-    description: `Delete ${recipe.name} and all of its steps? This cannot be undone.`,
+    title: 'Archive recipe?',
+    description: `${recipe.name} will be hidden from your recipe library. You can restore it from archived recipes later.`,
   })
 
-  if (!confirmed) {
-    return
+  if (confirmed) {
+    await archiveRecipeMutation.mutateAsync({
+      id: recipe.id,
+    })
   }
+}
 
-  await deleteRecipeMutation.mutateAsync({
+async function duplicateRecipe(recipe: { id: string }) {
+  const copy = await duplicateRecipeMutation.mutateAsync({
+    id: recipe.id,
+  })
+
+  await navigateTo(`/recipes/${copy.id}/edit`)
+}
+
+async function restoreRecipe(recipe: { id: string }) {
+  await restoreRecipeMutation.mutateAsync({
     id: recipe.id,
   })
 }
@@ -113,7 +153,26 @@ async function importRecipe() {
       status: string
     }
 
-    if (result.status === 'completed' && result.recipeId && result.recipeName) {
+    if (result.status === 'review') {
+      events.close()
+      toast.update(importToast.id, {
+        title: 'Import ready for review',
+        actions: [
+          {
+            color: 'primary',
+            label: 'Review import',
+            onClick: () => navigateTo(`/recipes/imports/${jobId}`),
+          },
+        ],
+        close: true,
+        description: 'Review the extracted recipe before adding it to your library.',
+        icon: 'i-lucide-clipboard-check',
+        ui: {
+          icon: '',
+        },
+      })
+    }
+    else if (result.status === 'completed' && result.recipeId && result.recipeName) {
       events.close()
       await Promise.all([
         recipesQuery.refetch(),
@@ -163,6 +222,7 @@ function clearFilters() {
   selectedCuisine.value = undefined
   selectedIngredients.value = []
   selectedTags.value = []
+  favoritesOnly.value = false
 }
 
 function caloriesPerPortion(calories: number, portions: number) {
@@ -200,6 +260,13 @@ function selectedFirstOptions(items: string[], selected: string[], allLabel: str
     >
       <template #actions>
         <UButton
+          :label="showArchived ? 'Active recipes' : 'Archived recipes'"
+          icon="i-lucide-archive"
+          color="neutral"
+          variant="ghost"
+          @click="showArchived = !showArchived"
+        />
+        <UButton
           label="Import recipe"
           icon="i-lucide-sparkles"
           color="neutral"
@@ -226,7 +293,7 @@ function selectedFirstOptions(items: string[], selected: string[], allLabel: str
       <div
         class="
           grid gap-3 rounded-xl border border-default bg-elevated/30 p-3
-          md:grid-cols-[minmax(0,1fr)_11rem_13rem_13rem_auto]
+          md:grid-cols-[minmax(0,1fr)_11rem_13rem_13rem]
         "
       >
         <UInput
@@ -259,14 +326,44 @@ function selectedFirstOptions(items: string[], selected: string[], allLabel: str
           placeholder="All tags"
           multiple
         />
-        <UButton
-          :class="hasFilters ? '' : 'invisible'"
-          :disabled="!hasFilters"
-          label="Clear"
-          color="neutral"
-          variant="ghost"
-          @click="clearFilters"
-        />
+        <div
+          class="
+            flex items-center gap-2
+            md:col-span-4
+          "
+        >
+          <UButton
+            :color="favoritesOnly ? 'primary' : 'neutral'"
+            :variant="favoritesOnly ? 'soft' : 'outline'"
+            icon="i-lucide-heart"
+            label="Favorites"
+            @click="favoritesOnly = !favoritesOnly"
+          />
+          <USelectMenu
+            v-model="sort"
+            :items="[
+              { label: 'Newest',
+                value: 'newest' },
+              { label: 'Recently cooked',
+                value: 'recently-cooked' },
+              { label: 'Calories',
+                value: 'calories' },
+              { label: 'Cook time',
+                value: 'cook-time' },
+            ]"
+            value-key="value"
+            class="w-44"
+            placeholder="Sort recipes"
+          />
+          <UButton
+            :class="hasFilters ? '' : 'invisible'"
+            :disabled="!hasFilters"
+            label="Clear"
+            color="neutral"
+            variant="ghost"
+            @click="clearFilters"
+          />
+        </div>
       </div>
 
       <div class="flex items-center justify-between gap-3">
@@ -384,6 +481,26 @@ function selectedFirstOptions(items: string[], selected: string[], allLabel: str
             "
           >
             <UButton
+              v-if="showArchived"
+              icon="i-lucide-archive-restore"
+              color="primary"
+              variant="ghost"
+              size="sm"
+              aria-label="Restore recipe"
+              @click="restoreRecipe(recipe)"
+            />
+            <UButton
+              v-else
+              :icon="recipe.isFavorite ? 'i-lucide-heart-off' : 'i-lucide-heart'"
+              :color="recipe.isFavorite ? 'primary' : 'neutral'"
+              :aria-label="recipe.isFavorite ? 'Remove favorite' : 'Add favorite'"
+              variant="ghost"
+              size="sm"
+              @click="setRecipeFavoriteMutation.mutate({ id: recipe.id,
+                                                         isFavorite: !recipe.isFavorite })"
+            />
+            <UButton
+              v-if="!showArchived"
               :to="`/recipes/${recipe.id}/edit`"
               icon="i-lucide-pencil"
               color="neutral"
@@ -392,12 +509,22 @@ function selectedFirstOptions(items: string[], selected: string[], allLabel: str
               aria-label="Edit recipe"
             />
             <UButton
-              icon="i-lucide-trash-2"
-              color="error"
+              v-if="!showArchived"
+              icon="i-lucide-copy"
+              color="neutral"
               variant="ghost"
               size="sm"
-              aria-label="Delete recipe"
-              @click="deleteRecipe(recipe)"
+              aria-label="Duplicate recipe"
+              @click="duplicateRecipe(recipe)"
+            />
+            <UButton
+              v-if="!showArchived"
+              icon="i-lucide-archive"
+              color="neutral"
+              variant="ghost"
+              size="sm"
+              aria-label="Archive recipe"
+              @click="archiveRecipe(recipe)"
             />
           </div>
         </article>

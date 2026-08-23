@@ -11,6 +11,7 @@ const recipes = computed(() => recipesQuery.data.value || [])
 const search = ref('')
 const selectedTags = ref<string[]>([])
 const selectedIngredients = ref<string[]>([])
+const resumableRecipeIds = ref<string[]>([])
 const tagOptions = computed(() => Array.from(new Set(recipes.value.flatMap((recipe) => recipe.tags))).sort())
 const ingredientOptions = computed(() => Array.from(new Set(recipes.value
   .flatMap((recipe) => recipe.ingredients))).sort())
@@ -29,6 +30,22 @@ const filteredRecipes = computed(() => {
     return matchesSearch
       && selectedTags.value.every((tag) => recipe.tags.includes(tag))
       && selectedIngredients.value.every((ingredient) => recipe.ingredients.includes(ingredient))
+  })
+})
+const resumableRecipes = computed(() => recipes.value.filter((recipe) => resumableRecipeIds.value.includes(recipe.id)))
+
+onMounted(() => {
+  resumableRecipeIds.value = Array.from({
+    length: localStorage.length,
+  }).flatMap((_, index) => {
+    const key = localStorage.key(index)
+    const match = key?.match(/^recipe-organiser:cooking:([\w-]+)$/)
+
+    return match
+      ? [
+          match[1]!,
+        ]
+      : []
   })
 })
 </script>
@@ -53,6 +70,41 @@ const filteredRecipes = computed(() => {
         Pick a recipe and start cooking.
       </h1>
     </div>
+    <section
+      v-if="resumableRecipes.length > 0"
+      class="flex flex-col gap-3"
+    >
+      <div class="flex items-center gap-2">
+        <UIcon
+          name="i-lucide-play-circle"
+          class="text-primary"
+        />
+        <h2 class="font-semibold text-highlighted">
+          Resume cooking
+        </h2>
+      </div>
+      <div
+        class="
+          grid gap-3
+          sm:grid-cols-2
+        "
+      >
+        <UPageCard
+          v-for="recipe in resumableRecipes"
+          :key="recipe.id"
+        >
+          <div class="flex items-center justify-between gap-3">
+            <span class="font-medium text-highlighted">{{ recipe.name }}</span>
+            <UButton
+              :to="`/kitchen/recipes/${recipe.id}`"
+              label="Resume"
+              icon="i-lucide-play"
+              size="sm"
+            />
+          </div>
+        </UPageCard>
+      </div>
+    </section>
     <div
       class="
         grid gap-3

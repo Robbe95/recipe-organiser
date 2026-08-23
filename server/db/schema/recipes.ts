@@ -1,6 +1,8 @@
 import {
+  boolean,
   doublePrecision,
   integer,
+  jsonb,
   primaryKey,
   text,
   timestamp,
@@ -64,12 +66,16 @@ export const recipe = recipesSchema.table('recipe', {
     onDelete: 'cascade',
   }),
   imageId: uuid('image_id'),
+  archivedAt: timestamp('archived_at', {
+    withTimezone: true,
+  }),
   createdAt: timestamp('created_at', {
     withTimezone: true,
   }).notNull().defaultNow(),
   updatedAt: timestamp('updated_at', {
     withTimezone: true,
   }).notNull().defaultNow(),
+  isFavorite: boolean('is_favorite').notNull().default(false),
   name: text('name').notNull(),
   calories: integer('calories'),
   caloriesOverride: integer('calories_override'),
@@ -143,6 +149,29 @@ export const recipeCooking = recipesSchema.table('recipe_cooking', {
   note: text('note'),
 })
 
+export const recipeCookingSession = recipesSchema.table('recipe_cooking_session', {
+  id: uuid('id').defaultRandom().primaryKey(),
+  createdById: text('created_by_id').notNull().references(() => user.id, {
+    onDelete: 'cascade',
+  }),
+  recipeId: uuid('recipe_id').notNull().references(() => recipe.id, {
+    onDelete: 'cascade',
+  }),
+  startedAt: timestamp('started_at', {
+    withTimezone: true,
+  }).notNull().defaultNow(),
+  completedAt: timestamp('completed_at', {
+    withTimezone: true,
+  }),
+  updatedAt: timestamp('updated_at', {
+    withTimezone: true,
+  }).notNull().defaultNow(),
+  completedStepIndexes: integer('completed_step_indexes').array().notNull().default([]),
+  currentStepIndex: integer('current_step_index').notNull().default(0),
+  note: text('note'),
+  timers: jsonb('timers').notNull().default([]),
+})
+
 export const recipeImportJob = recipesSchema.table('recipe_import_job', {
   id: uuid('id').defaultRandom().primaryKey(),
   createdById: text('created_by_id').notNull().references(() => user.id, {
@@ -158,6 +187,7 @@ export const recipeImportJob = recipesSchema.table('recipe_import_job', {
   updatedAt: timestamp('updated_at', {
     withTimezone: true,
   }).notNull().defaultNow(),
+  draft: jsonb('draft'),
   error: text('error'),
   sourceText: text('source_text'),
   sourceUrl: text('source_url'),

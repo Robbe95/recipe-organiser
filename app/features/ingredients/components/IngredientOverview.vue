@@ -3,11 +3,13 @@
 import ConfirmDeleteModal from '~/components/ConfirmDeleteModal.vue'
 import PageHeader from '~/components/page/PageHeader.vue'
 import PageShell from '~/components/page/PageShell.vue'
+import { useIngredientUsageQuery } from '~/features/ingredients/api/getIngredientUsage.query'
 import {
   useIngredientTypeMutations,
   useLibraryIngredientMutations,
 } from '~/features/ingredients/api/manageIngredients.mutation'
 import IngredientCard from '~/features/ingredients/components/IngredientCard.vue'
+import IngredientDeleteModal from '~/features/ingredients/components/IngredientDeleteModal.vue'
 import IngredientFormModal from '~/features/ingredients/components/IngredientFormModal.vue'
 import IngredientTypeCard from '~/features/ingredients/components/IngredientTypeCard.vue'
 import IngredientTypeFormModal from '~/features/ingredients/components/IngredientTypeFormModal.vue'
@@ -31,8 +33,10 @@ const selectionAnchorId = ref<string | null>(null)
 const selectedIngredientIds = ref<string[]>([])
 const editingIngredientId = ref<string | null>(null)
 const editingTypeId = ref<string | null>(null)
+const ingredientUsageId = ref<string | null>(null)
 const overlay = useOverlay()
 const confirmDeleteModal = overlay.create(ConfirmDeleteModal)
+const ingredientDeleteModal = overlay.create(IngredientDeleteModal)
 const ingredientFormModal = overlay.create(IngredientFormModal)
 const ingredientTypeFormModal = overlay.create(IngredientTypeFormModal)
 const newIngredient = reactive({
@@ -47,6 +51,7 @@ const newType = reactive({
   icon: 'i-lucide-package',
 })
 const ingredientMutations = useLibraryIngredientMutations()
+const ingredientUsageQuery = useIngredientUsageQuery(ingredientUsageId)
 const typeMutations = useIngredientTypeMutations()
 const tabs = [
   {
@@ -288,10 +293,15 @@ async function submitType() {
 
 async function deleteIngredient(item: { id: string
   name: string }) {
-  const confirmed = await confirmDeleteModal.open({
-    title: 'Delete ingredient?',
-    description: `Delete ${item.name}? It must not be used by a recipe.`,
+  ingredientUsageId.value = item.id
+
+  const usage = await ingredientUsageQuery.refetch()
+  const confirmed = await ingredientDeleteModal.open({
+    ingredientName: item.name,
+    recipes: usage.data || [],
   })
+
+  ingredientUsageId.value = null
 
   if (!confirmed) {
     return
@@ -311,7 +321,7 @@ async function deleteSelectedIngredients() {
 
   const confirmed = await confirmDeleteModal.open({
     title: `Delete ${count} ingredients?`,
-    description: 'Delete the selected ingredients? They must not be used by a recipe.',
+    description: 'Delete the selected ingredients and remove them from every recipe that uses them?',
   })
 
   if (!confirmed) {

@@ -37,6 +37,7 @@
     "@vercel/blob": "2.4.0",
     "@vueuse/core": "14.4.0",
     "@vueuse/nuxt": "14.4.0",
+    "@web-kits/audio": "^0.1.0",
     "ai": "^7.0.77",
     "better-auth": "1.7.1",
     "drizzle-orm": "0.45.2",

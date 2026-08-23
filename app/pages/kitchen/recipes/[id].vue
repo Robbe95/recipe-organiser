@@ -1,6 +1,10 @@
 <script setup lang="ts">
 /* eslint-disable @intlify/vue-i18n/no-raw-text */
 import {
+  defineSound,
+  ensureReady,
+} from '@web-kits/audio'
+import {
   AnimatePresence,
   Motion,
 } from 'motion-v'
@@ -19,6 +23,7 @@ const recipeQuery = useRecipeForCookingQuery(recipeId.value)
 const recipe = computed(() => recipeQuery.data.value)
 const phase = ref<'complete' | 'ingredients' | 'steps'>('ingredients')
 const stepIndex = ref(0)
+const completedStepIndexes = ref<number[]>([])
 const now = ref(Date.now())
 const ingredientsDrawerOpen = ref(false)
 const selectedIngredientType = ref<string | null>(null)
@@ -33,6 +38,22 @@ const overlay = useOverlay()
 const finishRecipeModal = overlay.create(RecipeCookingFinishModal)
 const completeRecipeCookingMutation = useCompleteRecipeCookingMutation()
 const toast = useToast()
+const sessionKey = `recipe-organiser:cooking:${recipeId.value}`
+const timerAlert = defineSound({
+  envelope: {
+    decay: 0.25,
+  },
+  gain: 0.4,
+  source: {
+    frequency: {
+      end: 880,
+      start: 440,
+    },
+    type: 'sine',
+  },
+})
+let wakeLock: WakeLockSentinel | undefined
+let visibilityHandler: (() => void) | undefined
 
 const currentStep = computed(() => recipe.value?.steps[stepIndex.value])
 const nextStep = computed(() => recipe.value?.steps[stepIndex.value + 1])
@@ -84,6 +105,12 @@ function formatTime(seconds: number) {
 function startCooking() {
   phase.value = 'steps'
   stepIndex.value = 0
+  void ensureReady()
+  void requestWakeLock()
+
+  if ('Notification' in window && Notification.permission === 'default') {
+    void Notification.requestPermission()
+  }
 }
 
 function startTimer() {
@@ -104,7 +131,30 @@ function next() {
     return
   }
 
+  completedStepIndexes.value = [
+    ...new Set([
+      ...completedStepIndexes.value,
+      stepIndex.value,
+    ]),
+  ]
   stepIndex.value += 1
+}
+
+function toggleStepComplete(index: number) {
+  completedStepIndexes.value = completedStepIndexes.value.includes(index)
+    ? completedStepIndexes.value.filter((item) => item !== index)
+    : [
+        ...completedStepIndexes.value,
+        index,
+      ]
+}
+
+async function requestWakeLock() {
+  if (!('wakeLock' in navigator)) {
+    return
+  }
+
+  wakeLock = await navigator.wakeLock.request('screen')
 }
 
 async function finishCooking() {
@@ -124,6 +174,8 @@ async function finishCooking() {
     recipeId: recipe.value.id,
     note: result.note,
   })
+  localStorage.removeItem(sessionKey)
+  activeTimers.value = []
   phase.value = 'complete'
   toast.add({
     title: 'Recipe added to your history',
@@ -161,14 +213,83 @@ function previous() {
 let timerInterval: ReturnType<typeof setInterval> | undefined
 
 onMounted(() => {
+  const stored = localStorage.getItem(sessionKey)
+
+  if (stored) {
+    try {
+      const session = JSON.parse(stored) as {
+        activeTimers: typeof activeTimers.value
+        completedStepIndexes: number[]
+        phase: typeof phase.value
+        stepIndex: number
+      }
+
+      activeTimers.value = session.activeTimers || []
+      completedStepIndexes.value = session.completedStepIndexes || []
+      phase.value = session.phase === 'complete' ? 'ingredients' : session.phase
+      stepIndex.value = Math.max(0, session.stepIndex || 0)
+    }
+    catch {
+      localStorage.removeItem(sessionKey)
+    }
+  }
+
+  visibilityHandler = () => {
+    if (document.visibilityState === 'visible' && phase.value === 'steps') {
+      void requestWakeLock()
+    }
+  }
+  document.addEventListener('visibilitychange', visibilityHandler)
+
   timerInterval = setInterval(() => {
     now.value = Date.now()
+
+    timerCards.value.filter((timer) => timer.remaining === 0 && !timer.paused).forEach((timer) => {
+      if (activeTimers.value.some((item) => item.id === timer.id)) {
+        timerAlert()
+        navigator.vibrate?.([
+          180,
+          100,
+          180,
+        ])
+
+        if (Notification.permission === 'granted') {
+          void new Notification('Timer finished', {
+            body: timer.label,
+          })
+        }
+
+        removeTimer(timer.id)
+      }
+    })
   }, 1000)
+})
+
+watch([
+  activeTimers,
+  completedStepIndexes,
+  phase,
+  stepIndex,
+], () => {
+  localStorage.setItem(sessionKey, JSON.stringify({
+    activeTimers: activeTimers.value,
+    completedStepIndexes: completedStepIndexes.value,
+    phase: phase.value,
+    stepIndex: stepIndex.value,
+  }))
+}, {
+  deep: true,
 })
 
 onBeforeUnmount(() => {
   if (timerInterval) {
     clearInterval(timerInterval)
+  }
+
+  wakeLock?.release()
+
+  if (visibilityHandler) {
+    document.removeEventListener('visibilitychange', visibilityHandler)
   }
 })
 </script>
@@ -371,6 +492,14 @@ onBeforeUnmount(() => {
               class="self-start rounded-full px-5"
               @click="startTimer"
             />
+            <UButton
+              :label="completedStepIndexes.includes(stepIndex) ? 'Completed' : 'Mark complete'"
+              :icon="completedStepIndexes.includes(stepIndex) ? 'i-lucide-check' : 'i-lucide-circle-check'"
+              color="neutral"
+              variant="soft"
+              class="self-start rounded-full px-5"
+              @click="toggleStepComplete(stepIndex)"
+            />
           </Motion>
         </AnimatePresence>
         <AnimatePresence mode="popLayout">
@@ -488,7 +617,7 @@ onBeforeUnmount(() => {
                 grid size-5 shrink-0 place-items-center rounded-full border
                 border-current text-xs
               "
-            >{{ index + 1 }}</span>
+            >{{ completedStepIndexes.includes(index) ? '✓' : index + 1 }}</span>
             <span class="line-clamp-2">{{ step.instruction }}</span>
           </Motion>
           <div

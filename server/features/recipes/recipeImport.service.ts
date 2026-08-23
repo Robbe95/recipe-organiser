@@ -40,6 +40,10 @@ const importedRecipeSchema = z.object({
 
 export type ImportedRecipe = z.infer<typeof importedRecipeSchema>
 
+export function parseImportedRecipe(input: unknown): ImportedRecipe {
+  return importedRecipeSchema.parse(input)
+}
+
 /**
  * The importer deliberately has a single, constrained tool: extraction can
  * describe a recipe, but it cannot perform any arbitrary action for a user.
@@ -96,7 +100,7 @@ export async function extractRecipeFromImage(image: Uint8Array): Promise<Importe
     throw new Error('The recipe import did not return a draft.')
   }
 
-  return importedRecipeSchema.parse(imported)
+  return parseImportedRecipe(imported)
 }
 
 export async function extractRecipeFromText(text: string): Promise<ImportedRecipe> {
@@ -131,5 +135,5 @@ export async function extractRecipeFromText(text: string): Promise<ImportedRecip
     throw new Error('The recipe import did not return a draft.')
   }
 
-  return importedRecipeSchema.parse(imported)
+  return parseImportedRecipe(imported)
 }
