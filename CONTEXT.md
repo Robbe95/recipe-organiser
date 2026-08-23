@@ -29,9 +29,9 @@
 - Keep files focused and normally around 200 lines or fewer. Split by domain
   before a file becomes unwieldy. Feature-owned tables live beside that feature;
   `server/db/schema/` contains only shared schema foundations and composition.
-- Images use S3-compatible storage: MinIO locally and Cloudflare R2 on Vercel.
-  Buckets stay private. The browser uploads directly with a short-lived
-  presigned URL; oRPC authorizes it and finalizes processing.
+- Images use a public Vercel Blob store. The browser uploads directly with a
+  short-lived client token; the upload endpoint authorizes each path and oRPC
+  finalizes processing. Temporary originals are deleted once variants exist.
 - On finalization, the server converts images to WebP and stores thumbnail,
   mobile, tablet, desktop, and full variants. Crop and focal-point metadata are
   persisted with the image asset.

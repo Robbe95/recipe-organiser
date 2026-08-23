@@ -143,6 +143,27 @@ export const recipeCooking = recipesSchema.table('recipe_cooking', {
   note: text('note'),
 })
 
+export const recipeImportJob = recipesSchema.table('recipe_import_job', {
+  id: uuid('id').defaultRandom().primaryKey(),
+  createdById: text('created_by_id').notNull().references(() => user.id, {
+    onDelete: 'cascade',
+  }),
+  imageId: uuid('image_id'),
+  recipeId: uuid('recipe_id').references(() => recipe.id, {
+    onDelete: 'set null',
+  }),
+  createdAt: timestamp('created_at', {
+    withTimezone: true,
+  }).notNull().defaultNow(),
+  updatedAt: timestamp('updated_at', {
+    withTimezone: true,
+  }).notNull().defaultNow(),
+  error: text('error'),
+  sourceText: text('source_text'),
+  sourceUrl: text('source_url'),
+  status: text('status').notNull().default('queued'),
+})
+
 export const recipeShare = recipesSchema.table('recipe_share', {
   recipeId: uuid('recipe_id').notNull().references(() => recipe.id, {
     onDelete: 'cascade',

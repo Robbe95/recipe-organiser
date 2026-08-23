@@ -38,22 +38,14 @@ pnpm db:seed
 pnpm dev
 ```
 
-`docker compose up -d` also starts a local MinIO server for recipe images.
-The S3 API is at `http://127.0.0.1:9000` and its console is at
-`http://127.0.0.1:9001`; the `s3-init` service creates the `recipe-images`
-bucket. The bucket remains private so the app can use time-limited signed URLs
-when recipe photos are added.
-
-Image uploads use oRPC to authorize the upload and finalize it. The actual file
-goes directly to storage with a five-minute signed URL, then the server uses
-Sharp to create private WebP variants: thumbnail (240px), mobile (800px),
-tablet (1200px), desktop (1600px), and full (up to 2400px). Crop and focal
-point metadata are kept in `recipes.image_asset`.
-
-For Cloudflare R2, set `S3_ENDPOINT` to your R2 S3 endpoint,
-`S3_REGION=auto`, and `S3_FORCE_PATH_STYLE=false`. Configure the bucket CORS
-policy to allow `GET`, `HEAD`, and `PUT` from the Vercel app’s exact origin,
-with `content-type` as an allowed header.
+Recipe images use Vercel Blob. Create a public Blob store in the Vercel project;
+Vercel adds `BLOB_READ_WRITE_TOKEN` automatically. Pull that variable locally
+with `vercel env pull`. Client uploads go directly to Blob after the server
+authorizes a five-minute upload token, then Sharp creates public WebP variants:
+thumbnail (240px), mobile (800px), tablet (1200px), desktop (1600px), and full
+(up to 2400px). Crop and focal-point metadata are kept in
+`recipes.image_asset`. For local direct uploads, expose the app through a
+tunnel so Vercel Blob can reach its upload-completion callback.
 
 Public sign-up is disabled. Until an invitation or admin flow exists, enable a
 local account only through a deliberate temporary workflow. `pnpm db:seed`

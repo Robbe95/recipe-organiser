@@ -14,6 +14,7 @@ import {
   ingredientType,
   recipe,
   recipeCooking,
+  recipeImportJob,
   recipeIngredient,
   recipeLabel,
   recipeStep,
@@ -28,7 +29,11 @@ import {
 } from '../images/imageStorage'
 import { imageAsset } from '../images/schema'
 import type { ImportedRecipe } from './recipeImport.service'
-import { extractRecipeFromImage } from './recipeImport.service'
+import {
+  extractRecipeFromImage,
+  extractRecipeFromText,
+} from './recipeImport.service'
+import { fetchRecipePageText } from './recipeUrlImport.service'
 
 const defaultIngredientTypes = [
   [
@@ -125,6 +130,107 @@ function normalizeImportedNutrition(item: ImportedRecipe['ingredients'][number])
     ...normalization,
     calories: item.calories,
   }
+}
+
+function inferredIngredientType(name: string) {
+  const normalized = name.toLocaleLowerCase()
+  const producePattern = /pepper|onion|spinach|lettuce|lime|lemon|cilantro|jalapeño|jalapeno/
+  const moreProducePattern = /avocado|tomato|garlic|potato|carrot/
+
+  if (producePattern.test(normalized)
+    || moreProducePattern.test(normalized)
+    || /fruit|vegetable/.test(normalized)) {
+    return 'vegetables & fruit'
+  }
+  if (/bean|chickpea|lentil|tofu|tempeh|meat|chicken|beef|pork|fish/.test(normalized)) {
+    return 'protein'
+  }
+  if (/rice|pasta|noodle|tortilla|bread|flour|oat|quinoa|couscous/.test(normalized)) {
+    return 'grains, pasta & bread'
+  }
+  if (/milk|cheese|yogurt|yoghurt|butter|egg/.test(normalized)) {
+    return 'dairy & eggs'
+  }
+  if (/salt|pepper|seasoning|spice|herb|cumin|paprika|chili|chilli/.test(normalized)) {
+    return 'herbs & seasonings'
+  }
+  if (/oil|salsa|sauce|dressing|vinegar|mayonnaise|guacamole/.test(normalized)) {
+    return 'sauces, oils & condiments'
+  }
+
+  return 'other'
+}
+
+function capitalizeIngredientName(value: string) {
+  return value ? `${value[0]?.toLocaleUpperCase()}${value.slice(1)}` : value
+}
+
+function importedTypeId(
+  item: ImportedRecipe['ingredients'][number],
+  typeByName: Map<string, { id: string }>,
+  fallbackType?: { id: string },
+) {
+  const declaredType = item.category
+    ? typeByName.get(item.category.trim().toLocaleLowerCase())
+    : undefined
+
+  return declaredType?.id || typeByName.get(inferredIngredientType(item.name))?.id || fallbackType?.id || null
+}
+
+function ingredientKey(name: string, unit: string | null) {
+  return `${name.toLocaleLowerCase().replaceAll(/[^a-z0-9]+/g, '')}:${unit || ''}`
+}
+
+function normalizedImportedIngredients(items: ImportedRecipe['ingredients']) {
+  const splitItems = items.flatMap((item) => {
+    const alternatives = item.name.split(/\s+or\s+/i).map((name) => name.trim()).filter(Boolean)
+
+    if (alternatives.length > 1) {
+      return alternatives.map((name) => ({
+        ...item,
+        isOptional: true,
+        name,
+      }))
+    }
+
+    const ingredients = item.name.split(/\s+(?:and|&)\s+/i).map((name) => name.trim()).filter(Boolean)
+
+    return ingredients.length > 1
+      ? ingredients.map((name) => ({
+          ...item,
+          name,
+        }))
+      : [
+          item,
+        ]
+  }).map((item) => ({
+    ...item,
+    name: capitalizeIngredientName(item.name),
+  }))
+  const merged = new Map<string, ImportedRecipe['ingredients'][number]>()
+
+  for (const item of splitItems) {
+    const key = ingredientKey(item.name, item.unit)
+    const existing = merged.get(key)
+
+    if (!existing) {
+      merged.set(key, item)
+
+      continue
+    }
+
+    merged.set(key, {
+      ...existing,
+      isOptional: existing.isOptional && item.isOptional,
+      amount: existing.amount !== null && item.amount !== null
+        ? existing.amount + item.amount
+        : existing.amount ?? item.amount,
+    })
+  }
+
+  return [
+    ...merged.values(),
+  ]
 }
 
 function calculateRecipeCalories(
@@ -402,6 +508,7 @@ const createIngredient = protectedProcedure.input(createIngredientInput).handler
   ] = await db.insert(ingredient).values({
     ...input,
     createdById: context.user.id,
+    name: capitalizeIngredientName(input.name),
   }).returning()
 
   if (!created) {
@@ -438,7 +545,7 @@ const updateIngredient = protectedProcedure.input(updateIngredientInput).handler
     updated,
   ] = await db.update(ingredient).set({
     typeId: input.typeId,
-    name: input.name,
+    name: input.name ? capitalizeIngredientName(input.name) : undefined,
     calorieAmount: input.calorieAmount,
     calories: input.calories,
     caloriesPer100g: input.caloriesPer100g,
@@ -477,6 +584,27 @@ const deleteIngredient = protectedProcedure.input(v.object({
   })
 
   if (!deleted[0]) {
+    throw new ORPCError('NOT_FOUND')
+  }
+})
+
+const deleteIngredients = protectedProcedure.input(v.object({
+  ids: v.pipe(v.array(v.pipe(v.string(), v.uuid())), v.minLength(1)),
+})).handler(async ({
+  context, input,
+}) => {
+  const ids = [
+    ...new Set(input.ids),
+  ]
+
+  const deleted = await db.delete(ingredient).where(and(
+    eq(ingredient.createdById, context.user.id),
+    inArray(ingredient.id, ids),
+  )).returning({
+    id: ingredient.id,
+  })
+
+  if (deleted.length !== ids.length) {
     throw new ORPCError('NOT_FOUND')
   }
 })
@@ -892,46 +1020,22 @@ const createRecipe = protectedProcedure.input(createRecipeInput).handler(async (
   return created
 })
 
-const importRecipeFromImage = protectedProcedure.input(v.object({
-  imageId: v.pipe(v.string(), v.uuid()),
-})).handler(async ({
-  context, input,
-}) => {
-  await assertOwnImage(context.user.id, input.imageId)
-  await ensureDefaultIngredientTypes(context.user.id)
-
-  const uploadedImage = await db.query.imageAsset.findFirst({
-    where: and(eq(imageAsset.id, input.imageId), eq(imageAsset.createdById, context.user.id)),
-  })
-
-  if (!uploadedImage) {
-    throw new ORPCError('NOT_FOUND')
-  }
-
-  let imported
-
-  try {
-    imported = await extractRecipeFromImage(await readObject(uploadedImage.variantKeys.full))
-  }
-  catch (error) {
-    console.error('[Recipe import] Unable to extract recipe from image.', error)
-
-    throw new ORPCError('INTERNAL_SERVER_ERROR', {
-      message: error instanceof Error
-        ? error.message
-        : 'We could not read a recipe from that image. Please try another image.',
-    })
-  }
-
+async function saveImportedRecipe(input: {
+  imageId?: string
+  userId: string
+  imported: ImportedRecipe
+  sourceName?: string
+  sourceUrl?: string
+}) {
   const [
     existingIngredients,
     ingredientTypes,
   ] = await Promise.all([
     db.query.ingredient.findMany({
-      where: eq(ingredient.createdById, context.user.id),
+      where: eq(ingredient.createdById, input.userId),
     }),
     db.query.ingredientType.findMany({
-      where: eq(ingredientType.createdById, context.user.id),
+      where: eq(ingredientType.createdById, input.userId),
     }),
   ])
   const ingredientByName = new Map(existingIngredients.map((item) => [
@@ -943,24 +1047,24 @@ const importRecipeFromImage = protectedProcedure.input(v.object({
     item,
   ]))
   const fallbackType = typeByName.get('other')
+  const importedIngredients = normalizedImportedIngredients(input.imported.ingredients)
+  const savedIngredients = await db.transaction(async (tx) => {
+    const result: Array<typeof existingIngredients[number]> = []
 
-  const importedIngredients = await db.transaction(async (tx) => {
-    const result = [] as Array<typeof existingIngredients[number]>
-
-    for (const item of imported.ingredients) {
+    for (const item of importedIngredients) {
       const key = item.name.trim().toLocaleLowerCase()
       let savedIngredient = ingredientByName.get(key)
+      const typeId = importedTypeId(item, typeByName, fallbackType)
+      const name = capitalizeIngredientName(item.name)
 
       if (!savedIngredient) {
         const nutrition = normalizeImportedNutrition(item)
         const [
           created,
         ] = await tx.insert(ingredient).values({
-          createdById: context.user.id,
-          typeId: item.category
-            ? typeByName.get(item.category.trim().toLocaleLowerCase())?.id || fallbackType?.id || null
-            : fallbackType?.id || null,
-          name: item.name,
+          createdById: input.userId,
+          typeId,
+          name,
           calorieAmount: nutrition.calorieAmount,
           calories: nutrition.calories,
           calorieUnit: nutrition.calorieUnit,
@@ -974,43 +1078,60 @@ const importRecipeFromImage = protectedProcedure.input(v.object({
         savedIngredient = created
         ingredientByName.set(key, created)
       }
+      else if (savedIngredient.name !== name
+        || (savedIngredient.typeId === fallbackType?.id && typeId && typeId !== fallbackType.id)) {
+        const [
+          updated,
+        ] = await tx.update(ingredient).set({
+          typeId: typeId || savedIngredient.typeId,
+          name,
+        }).where(eq(ingredient.id, savedIngredient.id)).returning()
+
+        if (updated) {
+          savedIngredient = updated
+          ingredientByName.set(key, updated)
+        }
+      }
 
       result.push(savedIngredient)
     }
 
     return result
   })
-  const recipeIngredients = imported.ingredients.map((item, index) => ({
+  const recipeIngredients = importedIngredients.map((item, index) => ({
     ...item,
-    ingredientId: importedIngredients[index]?.id,
+    ingredientId: savedIngredients[index]?.id,
   })).filter((item): item is typeof item & {
     ingredientId: string
   } => Boolean(item.ingredientId))
-  const calories = calculateRecipeCalories(recipeIngredients, importedIngredients)
-  const created = await db.transaction(async (tx) => {
+  const calories = calculateRecipeCalories(recipeIngredients, savedIngredients)
+
+  return await db.transaction(async (tx) => {
     const [
-      newRecipe,
+      created,
     ] = await tx.insert(recipe).values({
-      createdById: context.user.id,
-      imageId: input.imageId,
-      name: imported.name,
+      createdById: input.userId,
+      imageId: input.imageId || null,
+      name: input.imported.name,
       calories,
-      cookTimeMinutes: imported.cookTimeMinutes,
-      cuisine: imported.cuisine || null,
-      defaultPortions: imported.defaultPortions,
-      description: imported.description || null,
-      prepTimeMinutes: imported.prepTimeMinutes,
-      tags: imported.tags,
+      cookTimeMinutes: input.imported.cookTimeMinutes,
+      cuisine: input.imported.cuisine || null,
+      defaultPortions: input.imported.defaultPortions,
+      description: input.imported.description || null,
+      prepTimeMinutes: input.imported.prepTimeMinutes,
+      sourceName: input.sourceName || null,
+      sourceUrl: input.sourceUrl || null,
+      tags: input.imported.tags,
     }).returning()
 
-    if (!newRecipe) {
+    if (!created) {
       throw new ORPCError('INTERNAL_SERVER_ERROR')
     }
 
     if (recipeIngredients.length > 0) {
       await tx.insert(recipeIngredient).values(recipeIngredients.map((item, sortOrder) => ({
         ingredientId: item.ingredientId,
-        recipeId: newRecipe.id,
+        recipeId: created.id,
         isOptional: item.isOptional ? 1 : 0,
         amount: item.amount,
         note: item.note,
@@ -1018,32 +1139,159 @@ const importRecipeFromImage = protectedProcedure.input(v.object({
         unit: item.unit,
       })))
     }
-
-    if (imported.steps.length > 0) {
-      await tx.insert(recipeStep).values(imported.steps.map((item, sortOrder) => ({
-        recipeId: newRecipe.id,
+    if (input.imported.steps.length > 0) {
+      await tx.insert(recipeStep).values(input.imported.steps.map((item, sortOrder) => ({
+        recipeId: created.id,
+        durationSeconds: item.type === 'timer' ? item.durationSeconds : null,
         instruction: item.instruction,
         sortOrder,
-        type: 'normal' as const,
+        type: item.type,
       })))
     }
 
     const labels = toRecipeLabels({
-      cuisine: imported.cuisine,
-      tags: imported.tags,
+      cuisine: input.imported.cuisine,
+      sourceName: input.sourceName,
+      tags: input.imported.tags,
     })
 
     if (labels.length > 0) {
       await tx.insert(recipeLabel).values(labels.map((label) => ({
         ...label,
-        createdById: context.user.id,
+        createdById: input.userId,
       }))).onConflictDoNothing()
     }
 
-    return newRecipe
+    return created
+  })
+}
+
+async function processRecipeImport(jobId: string) {
+  const job = await db.query.recipeImportJob.findFirst({
+    where: eq(recipeImportJob.id, jobId),
   })
 
-  return created
+  if (!job) {
+    return
+  }
+
+  try {
+    await db.update(recipeImportJob).set({
+      updatedAt: new Date(),
+      status: 'processing',
+    }).where(eq(recipeImportJob.id, job.id))
+    await ensureDefaultIngredientTypes(job.createdById)
+
+    let imported: ImportedRecipe
+    let sourceName: string | undefined
+    let sourceUrl: string | undefined
+
+    if (job.imageId) {
+      const uploadedImage = await db.query.imageAsset.findFirst({
+        where: and(eq(imageAsset.id, job.imageId), eq(imageAsset.createdById, job.createdById)),
+      })
+
+      if (!uploadedImage) {
+        throw new Error('The uploaded image is no longer available.')
+      }
+
+      imported = await extractRecipeFromImage(await readObject(uploadedImage.variantKeys.full))
+    }
+    else if (job.sourceUrl) {
+      const page = await fetchRecipePageText(job.sourceUrl)
+
+      imported = await extractRecipeFromText(page.text)
+      sourceName = page.sourceName
+      sourceUrl = page.sourceUrl
+    }
+    else if (job.sourceText) {
+      imported = await extractRecipeFromText(job.sourceText)
+    }
+    else {
+      throw new Error('This import has no source.')
+    }
+
+    const savedRecipe = await saveImportedRecipe({
+      imageId: job.imageId || undefined,
+      userId: job.createdById,
+      imported,
+      sourceName,
+      sourceUrl,
+    })
+
+    await db.update(recipeImportJob).set({
+      recipeId: savedRecipe.id,
+      updatedAt: new Date(),
+      status: 'completed',
+    }).where(eq(recipeImportJob.id, job.id))
+  }
+  catch (error) {
+    console.error('[Recipe import] Background import failed.', error)
+    await db.update(recipeImportJob).set({
+      updatedAt: new Date(),
+      error: error instanceof Error ? error.message : 'We could not import that recipe.',
+      status: 'failed',
+    }).where(eq(recipeImportJob.id, jobId))
+  }
+}
+
+async function queueRecipeImport(input: {
+  imageId?: string
+  userId: string
+  sourceText?: string
+  sourceUrl?: string
+}) {
+  const [
+    job,
+  ] = await db.insert(recipeImportJob).values({
+    createdById: input.userId,
+    imageId: input.imageId || null,
+    sourceText: input.sourceText || null,
+    sourceUrl: input.sourceUrl || null,
+  }).returning()
+
+  if (!job) {
+    throw new ORPCError('INTERNAL_SERVER_ERROR')
+  }
+
+  void processRecipeImport(job.id)
+
+  return job
+}
+
+const importRecipeFromImage = protectedProcedure.input(v.object({
+  imageId: v.pipe(v.string(), v.uuid()),
+})).handler(async ({
+  context, input,
+}) => {
+  await assertOwnImage(context.user.id, input.imageId)
+
+  return await queueRecipeImport({
+    imageId: input.imageId,
+    userId: context.user.id,
+  })
+})
+
+const importRecipeFromText = protectedProcedure.input(v.object({
+  text: v.pipe(v.string(), v.trim(), v.minLength(20), v.maxLength(60_000)),
+})).handler(async ({
+  context, input,
+}) => {
+  return await queueRecipeImport({
+    userId: context.user.id,
+    sourceText: input.text,
+  })
+})
+
+const importRecipeFromUrl = protectedProcedure.input(v.object({
+  url: v.pipe(v.string(), v.trim(), v.url(), v.maxLength(2000)),
+})).handler(async ({
+  context, input,
+}) => {
+  return await queueRecipeImport({
+    userId: context.user.id,
+    sourceUrl: input.url,
+  })
 })
 
 const updateRecipeInput = v.intersect([
@@ -1168,12 +1416,15 @@ export const recipesRouter = {
   createRecipe,
   createRecipeLabel,
   deleteIngredient,
+  deleteIngredients,
   deleteIngredientType,
   deleteRecipe,
   deleteRecipeCookingHistory,
   getRecipe,
   getRecipeForCooking,
   importRecipeFromImage,
+  importRecipeFromText,
+  importRecipeFromUrl,
   listRecipeCookingHistory,
   listRecipeFormData,
   listRecipes,

@@ -96,7 +96,7 @@ watch([
 ], ([
   savedRecipe,
 ]) => {
-  if (!savedRecipe || recipeLoaded || ingredientOptions.value.length === 0) {
+  if (!savedRecipe || recipeLoaded) {
     return
   }
 

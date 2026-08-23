@@ -1,4 +1,5 @@
 import { ORPCError } from '@orpc/server'
+import { generateClientTokenFromReadWriteToken } from '@vercel/blob/client'
 import { eq } from 'drizzle-orm'
 import * as v from 'valibot'
 
@@ -7,7 +8,6 @@ import { protectedProcedure } from '../../orpc/procedure'
 import { processImage } from './imageProcessing'
 import {
   createReadUrl,
-  createUploadUrl,
   deleteObject,
   readObject,
 } from './imageStorage'
@@ -45,6 +45,16 @@ const completeInputSchema = v.object({
   sourceKey: v.pipe(v.string(), v.minLength(1), v.maxLength(500)),
 })
 
+function requiredBlobToken() {
+  const token = process.env.BLOB_READ_WRITE_TOKEN
+
+  if (!token) {
+    throw new Error('BLOB_READ_WRITE_TOKEN must be configured for image storage.')
+  }
+
+  return token
+}
+
 function assertOwnTemporaryKey(userId: string, imageId: string, sourceKey: string) {
   const expectedKey = `recipes/${userId}/incoming/${imageId}`
 
@@ -63,11 +73,17 @@ const createUpload = protectedProcedure
 
     return {
       id,
-      sourceKey,
-      uploadUrl: await createUploadUrl({
-        contentType: input.contentType,
-        key: sourceKey,
+      clientToken: await generateClientTokenFromReadWriteToken({
+        addRandomSuffix: false,
+        allowedContentTypes: [
+          input.contentType,
+        ],
+        maximumSizeInBytes: maxUploadBytes,
+        pathname: sourceKey,
+        token: requiredBlobToken(),
+        validUntil: Date.now() + 60 * 5 * 1000,
       }),
+      sourceKey,
     }
   })
 

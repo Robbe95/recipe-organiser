@@ -13,11 +13,13 @@ const props = defineProps<{
     calorieUnit: string | null
     defaultUnit: string | null
   }
+  selected?: boolean
 }>()
 
 const emit = defineEmits<{
   delete: [ingredient: typeof props.ingredient]
   edit: [ingredient: typeof props.ingredient]
+  select: [event: MouseEvent, ingredient: typeof props.ingredient]
 }>()
 
 const calories = computed(() => {
@@ -30,7 +32,15 @@ const calories = computed(() => {
 </script>
 
 <template>
-  <UPageCard>
+  <UPageCard
+    :class="[
+      props.selected ? 'bg-primary/5 ring-2 ring-primary' : `
+        hover:bg-elevated/50
+      `,
+    ]"
+    class="cursor-pointer transition-colors"
+    @click="emit('select', $event, ingredient)"
+  >
     <div class="flex items-start justify-between gap-3">
       <div class="flex flex-col">
         <h3 class="font-medium text-highlighted">
@@ -43,6 +53,7 @@ const calories = computed(() => {
         </p>
       </div>
       <CardActionGroup
+        @click.stop
         @edit="emit('edit', ingredient)"
         @delete="emit('delete', ingredient)"
       />

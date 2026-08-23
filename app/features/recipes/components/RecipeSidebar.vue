@@ -32,11 +32,6 @@ const navigation = [
     to: '/ingredients',
   },
   {
-    icon: 'i-lucide-chef-hat',
-    label: 'Kitchen mode',
-    to: '/kitchen',
-  },
-  {
     icon: 'i-lucide-history',
     label: 'Cooking history',
     to: '/history',
@@ -107,38 +102,36 @@ async function signOut() {
       </template>
 
       <template #default>
-        <div class="flex flex-col gap-5 px-2 py-3">
+        <div class="flex h-full flex-col justify-between gap-5">
           <UNavigationMenu
             :items="navigation"
             :ui="{ link: 'rounded-xl px-3 py-2.5' }"
             orientation="vertical"
           />
-
-          <div class="rounded-xl bg-primary/8 p-3 text-sm text-toned">
-            <UIcon
-              name="i-lucide-tablet"
-              class="mb-2 size-5 text-primary"
-            />
-            <p class="font-medium text-highlighted">
-              Kitchen mode, soon.
-            </p>
-            <p class="mt-1 text-xs/5">
-              A focused, step-by-step cooking view for the iPad.
-            </p>
-          </div>
+          <UButton
+            to="/kitchen"
+            class="flex justify-between"
+            trailing-icon="i-lucide-arrow-right"
+          >
+            <div class="flex items-center gap-2">
+              <UIcon name="i-lucide-chef-hat" />
+              Kitchen mode
+            </div>
+          </UButton>
         </div>
       </template>
 
       <template #footer>
-        <UDropdownMenu :items="userItems">
+        <UDropdownMenu
+          :items="userItems"
+          :ui="{ content: 'w-(--reka-dropdown-menu-trigger-width)' }"
+        >
           <UButton
-            v-bind="user"
             :label="user.name"
             color="neutral"
             variant="ghost"
             trailing-icon="i-lucide-chevrons-up-down"
-            class="w-full"
-            square
+            class="flex w-full justify-between"
           />
         </UDropdownMenu>
       </template>

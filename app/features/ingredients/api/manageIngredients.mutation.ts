@@ -23,6 +23,9 @@ export function useLibraryIngredientMutations() {
     delete: useMutation(orpc.recipes.deleteIngredient.mutationOptions({
       onSuccess,
     })),
+    deleteMany: useMutation(orpc.recipes.deleteIngredients.mutationOptions({
+      onSuccess,
+    })),
     update: useMutation(orpc.recipes.updateIngredient.mutationOptions({
       onSuccess,
     })),

@@ -1,5 +1,7 @@
 <script setup lang="ts">
 /* eslint-disable @intlify/vue-i18n/no-raw-text */
+import { put } from '@vercel/blob/client'
+
 import { useCompleteImageUploadMutation } from '~/features/images/api/completeUpload.mutation'
 import { useCreateImageUploadMutation } from '~/features/images/api/createUpload.mutation'
 
@@ -36,7 +38,7 @@ async function uploadFile(event: Event) {
     uploading.value = true
 
     const contentType = file.type as 'image/avif' | 'image/heic' | 'image/heif' | 'image/jpeg' | 'image/png' | 'image/webp'
-    const upload = await createUpload.mutateAsync({
+    const uploadTarget = await createUpload.mutateAsync({
       contentType,
       crop,
       fileName: file.name,
@@ -44,25 +46,21 @@ async function uploadFile(event: Event) {
       focalY: 0.5,
       size: file.size,
     })
-    const response = await fetch(upload.uploadUrl, {
-      body: file,
-      headers: {
-        'content-type': contentType,
-      },
-      method: 'PUT',
+
+    await put(uploadTarget.sourceKey, file, {
+      access: 'public',
+      contentType,
+      multipart: file.size > 4 * 1024 * 1024,
+      token: uploadTarget.clientToken,
     })
 
-    if (!response.ok) {
-      throw new Error('Image upload failed.')
-    }
-
     const image = await completeUpload.mutateAsync({
-      id: upload.id,
+      id: uploadTarget.id,
       contentType,
       crop,
       focalX: 0.5,
       focalY: 0.5,
-      sourceKey: upload.sourceKey,
+      sourceKey: uploadTarget.sourceKey,
     })
 
     if (!image) {

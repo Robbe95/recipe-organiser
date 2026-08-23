@@ -1,5 +1,7 @@
 <script setup lang="ts">
 /* eslint-disable @intlify/vue-i18n/no-raw-text */
+import { put } from '@vercel/blob/client'
+
 import { useCompleteImageUploadMutation } from '../api/completeUpload.mutation'
 import { useCreateImageUploadMutation } from '../api/createUpload.mutation'
 import { useImageAssetsQuery } from '../api/listImages.query'
@@ -55,7 +57,7 @@ async function uploadImage(payload: {
     errorMessage.value = ''
     uploading.value = true
 
-    const upload = await createUpload.mutateAsync({
+    const uploadTarget = await createUpload.mutateAsync({
       contentType: payload.file.type as 'image/avif' | 'image/heic' | 'image/heif' | 'image/jpeg' | 'image/png' | 'image/webp',
       crop: payload.crop,
       fileName: payload.file.name,
@@ -63,25 +65,21 @@ async function uploadImage(payload: {
       focalY: payload.focal.y,
       size: payload.file.size,
     })
-    const response = await fetch(upload.uploadUrl, {
-      body: payload.file,
-      headers: {
-        'content-type': payload.file.type,
-      },
-      method: 'PUT',
+
+    await put(uploadTarget.sourceKey, payload.file, {
+      access: 'public',
+      contentType: payload.file.type,
+      multipart: payload.file.size > 4 * 1024 * 1024,
+      token: uploadTarget.clientToken,
     })
 
-    if (!response.ok) {
-      throw new Error('Image upload failed.')
-    }
-
     const image = await completeUpload.mutateAsync({
-      id: upload.id,
+      id: uploadTarget.id,
       contentType: payload.file.type as 'image/avif' | 'image/heic' | 'image/heif' | 'image/jpeg' | 'image/png' | 'image/webp',
       crop: payload.crop,
       focalX: payload.focal.x,
       focalY: payload.focal.y,
-      sourceKey: upload.sourceKey,
+      sourceKey: uploadTarget.sourceKey,
     })
 
     if (!image) {

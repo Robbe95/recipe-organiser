@@ -27,6 +27,8 @@ const units = [
 ]
 const search = ref('')
 const activeTab = ref('ingredients')
+const selectionAnchorId = ref<string | null>(null)
+const selectedIngredientIds = ref<string[]>([])
 const editingIngredientId = ref<string | null>(null)
 const editingTypeId = ref<string | null>(null)
 const overlay = useOverlay()
@@ -80,6 +82,53 @@ const visibleIngredientCount = computed(() => ingredientGroups.value.reduce(
   (total, group) => total + group.ingredients.length,
   0,
 ))
+const visibleIngredientIds = computed(() => ingredientGroups.value.flatMap((group) => (
+  group.ingredients.map((ingredient) => ingredient.id)
+)))
+const selectedIngredientCount = computed(() => selectedIngredientIds.value.length)
+
+function selectIngredient(event: MouseEvent, item: { id: string }) {
+  const selected = new Set(selectedIngredientIds.value)
+
+  if (event.shiftKey && selectionAnchorId.value) {
+    const start = visibleIngredientIds.value.indexOf(selectionAnchorId.value)
+    const end = visibleIngredientIds.value.indexOf(item.id)
+
+    if (start !== -1 && end !== -1) {
+      const [
+        from,
+        to,
+      ] = start < end
+        ? [
+            start,
+            end,
+          ]
+        : [
+            end,
+            start,
+          ]
+
+      visibleIngredientIds.value.slice(from, to + 1).forEach((id) => selected.add(id))
+    }
+  }
+  else if (selected.has(item.id)) {
+    selected.delete(item.id)
+    selectionAnchorId.value = null
+  }
+  else {
+    selected.add(item.id)
+    selectionAnchorId.value = item.id
+  }
+
+  selectedIngredientIds.value = [
+    ...selected,
+  ]
+}
+
+function clearIngredientSelection() {
+  selectedIngredientIds.value = []
+  selectionAnchorId.value = null
+}
 
 async function addIngredient() {
   if (!newIngredient.name.trim()) {
@@ -253,6 +302,28 @@ async function deleteIngredient(item: { id: string
   })
 }
 
+async function deleteSelectedIngredients() {
+  const count = selectedIngredientCount.value
+
+  if (count === 0) {
+    return
+  }
+
+  const confirmed = await confirmDeleteModal.open({
+    title: `Delete ${count} ingredients?`,
+    description: 'Delete the selected ingredients? They must not be used by a recipe.',
+  })
+
+  if (!confirmed) {
+    return
+  }
+
+  await ingredientMutations.deleteMany.mutateAsync({
+    ids: selectedIngredientIds.value,
+  })
+  clearIngredientSelection()
+}
+
 async function deleteType(item: { id: string
   name: string }) {
   const confirmed = await confirmDeleteModal.open({
@@ -385,12 +456,40 @@ async function deleteType(item: { id: string
               v-for="ingredient in group.ingredients"
               :key="ingredient.id"
               :ingredient="ingredient"
+              :selected="selectedIngredientIds.includes(ingredient.id)"
               @edit="openIngredient"
               @delete="deleteIngredient"
+              @select="selectIngredient"
             />
           </div>
         </section>
       </div>
+    </div>
+
+    <div
+      v-if="selectedIngredientCount > 0"
+      class="
+        fixed bottom-6 left-1/2 z-50 flex -translate-x-1/2 items-center gap-3
+        rounded-xl border border-default bg-elevated px-3 py-2 shadow-xl
+      "
+    >
+      <span class="text-sm font-medium whitespace-nowrap text-highlighted">
+        {{ selectedIngredientCount }} selected
+      </span>
+      <UButton
+        label="Clear"
+        color="neutral"
+        variant="ghost"
+        size="sm"
+        @click="clearIngredientSelection"
+      />
+      <UButton
+        label="Delete"
+        icon="i-lucide-trash-2"
+        color="error"
+        size="sm"
+        @click="deleteSelectedIngredients"
+      />
     </div>
     <div
       v-if="activeTab === 'types'"
