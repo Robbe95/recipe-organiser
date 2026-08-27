@@ -5,6 +5,7 @@ export interface IngredientRow {
   calorieAmount: number | undefined
   calories: number | undefined
   calorieUnit: string | undefined
+  groupName: string
   note: string
   unit: string
 }

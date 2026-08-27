@@ -1,0 +1,1 @@
+ALTER TABLE "recipes"."recipe" ADD COLUMN "ingredient_sections" text[] DEFAULT '{}' NOT NULL;

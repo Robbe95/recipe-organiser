@@ -42,9 +42,17 @@ const ingredientTypeFormModal = overlay.create(IngredientTypeFormModal)
 const newIngredient = reactive({
   typeId: '',
   name: '',
-  calorieAmount: undefined as number | undefined,
-  calories: undefined as number | undefined,
   defaultUnit: '',
+  requiresWeight: false,
+  variants: [
+    {
+      name: 'Generic',
+      calorieAmount: undefined as number | undefined,
+      calories: undefined as number | undefined,
+      calorieUnit: '',
+      isDefault: true,
+    },
+  ],
 })
 const newType = reactive({
   name: '',
@@ -143,27 +151,37 @@ async function addIngredient() {
   await ingredientMutations.create.mutateAsync({
     ...newIngredient,
     typeId: newIngredient.typeId || null,
-    calorieAmount: newIngredient.calorieAmount ?? null,
-    calories: newIngredient.calories ?? null,
-    calorieUnit: newIngredient.defaultUnit || null,
     defaultUnit: newIngredient.defaultUnit || null,
   })
   Object.assign(newIngredient, {
     typeId: '',
     name: '',
-    calorieAmount: undefined,
-    calories: undefined,
     defaultUnit: '',
+    requiresWeight: false,
+    variants: [
+      {
+        name: 'Generic',
+        calorieAmount: undefined,
+        calories: undefined,
+        calorieUnit: '',
+        isDefault: true,
+      },
+    ],
   })
 }
 
 async function saveIngredient(item: { id: string
   typeId: string | null
   name: string
-  calorieAmount: number | null
-  calories: number | null
-  calorieUnit: string | null
-  defaultUnit: string | null }) {
+  defaultUnit: string | null
+  requiresWeight: boolean
+  variants: Array<{
+    isDefault: boolean
+    name: string
+    calorieAmount: number | undefined
+    calories: number | undefined
+    calorieUnit: string
+  }> }) {
   await ingredientMutations.update.mutateAsync(item)
 }
 
@@ -187,9 +205,17 @@ async function openNewIngredient() {
   Object.assign(newIngredient, {
     typeId: '',
     name: '',
-    calorieAmount: undefined,
-    calories: undefined,
     defaultUnit: '',
+    requiresWeight: false,
+    variants: [
+      {
+        name: 'Generic',
+        calorieAmount: undefined,
+        calories: undefined,
+        calorieUnit: '',
+        isDefault: true,
+      },
+    ],
   })
 
   const submitted = await ingredientFormModal.open({
@@ -210,18 +236,28 @@ async function openNewIngredient() {
 async function openIngredient(item: { id: string
   typeId: string | null
   name: string
-  calorieAmount: number | null
-  calories: number | null
-  caloriesPer100g: number | null
-  calorieUnit: string | null
-  defaultUnit: string | null }) {
+  defaultUnit: string | null
+  requiresWeight: number
+  variants: Array<{
+    isDefault: number
+    name: string
+    calorieAmount: number | null
+    calories: number | null
+    calorieUnit: string | null
+  }> }) {
   editingIngredientId.value = item.id
   Object.assign(newIngredient, {
     ...item,
     typeId: item.typeId || '',
-    calorieAmount: item.calorieAmount ?? (item.caloriesPer100g ? 100 : undefined),
-    calories: item.calories ?? item.caloriesPer100g ?? undefined,
     defaultUnit: item.defaultUnit || '',
+    requiresWeight: Boolean(item.requiresWeight),
+    variants: item.variants.map((variant) => ({
+      isDefault: Boolean(variant.isDefault),
+      name: variant.name,
+      calorieAmount: variant.calorieAmount ?? undefined,
+      calories: variant.calories ?? undefined,
+      calorieUnit: variant.calorieUnit || '',
+    })),
   })
 
   const submitted = await ingredientFormModal.open({
@@ -245,9 +281,6 @@ async function submitIngredient() {
       id: editingIngredientId.value,
       ...newIngredient,
       typeId: newIngredient.typeId || null,
-      calorieAmount: newIngredient.calorieAmount ?? null,
-      calories: newIngredient.calories ?? null,
-      calorieUnit: newIngredient.defaultUnit || null,
       defaultUnit: newIngredient.defaultUnit || null,
     })
 

@@ -1,4 +1,5 @@
 <script setup lang="ts">
+/* eslint-disable @intlify/vue-i18n/no-raw-text */
 import ConfirmDeleteModal from '~/components/ConfirmDeleteModal.vue'
 import PageHeader from '~/components/page/PageHeader.vue'
 import PageShell from '~/components/page/PageShell.vue'
@@ -94,6 +95,12 @@ async function removeEntry(entry: {
             </div>
             <p class="text-sm text-toned">
               {{ formatDate(entry.createdAt) }}
+            </p>
+            <p
+              v-if="entry.calories !== null"
+              class="text-sm font-medium text-primary"
+            >
+              {{ entry.calories }} kcal for the whole dish
             </p>
             <p
               v-if="entry.note"

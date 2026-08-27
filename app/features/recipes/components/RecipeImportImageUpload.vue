@@ -15,6 +15,14 @@ const fileInput = useTemplateRef('fileInput')
 const errorMessage = ref('')
 const previewUrl = ref('')
 const uploading = ref(false)
+const acceptedContentTypes = new Set([
+  'image/avif',
+  'image/heic',
+  'image/heif',
+  'image/jpeg',
+  'image/png',
+  'image/webp',
+])
 const crop = {
   height: 1,
   width: 1,
@@ -26,10 +34,10 @@ function chooseFile() {
   fileInput.value?.click()
 }
 
-async function uploadFile(event: Event) {
-  const file = (event.target as HTMLInputElement).files?.[0]
+async function uploadFile(file: File) {
+  if (!acceptedContentTypes.has(file.type)) {
+    errorMessage.value = 'Use a JPEG, PNG, WebP, AVIF, HEIC, or HEIF image.'
 
-  if (!file) {
     return
   }
 
@@ -87,7 +95,32 @@ async function uploadFile(event: Event) {
   }
 }
 
+async function handleFileInput(event: Event) {
+  const file = (event.target as HTMLInputElement).files?.[0]
+
+  if (file) {
+    await uploadFile(file)
+  }
+}
+
+function handlePaste(event: ClipboardEvent) {
+  const file = Array.from(event.clipboardData?.files || []).find((item) => item.type.startsWith('image/'))
+
+  if (!file) {
+    return
+  }
+
+  event.preventDefault()
+  void uploadFile(file)
+}
+
+onMounted(() => {
+  window.addEventListener('paste', handlePaste)
+})
+
 onBeforeUnmount(() => {
+  window.removeEventListener('paste', handlePaste)
+
   if (previewUrl.value) {
     URL.revokeObjectURL(previewUrl.value)
   }
@@ -106,7 +139,7 @@ onBeforeUnmount(() => {
       accept="image/jpeg,image/png,image/webp,image/avif,image/heic,image/heif"
       class="hidden"
       type="file"
-      @change="uploadFile"
+      @change="handleFileInput"
     >
     <button
       type="button"
@@ -141,13 +174,13 @@ onBeforeUnmount(() => {
         :class="[previewUrl ? `text-white` : `text-highlighted`]"
         class="relative text-sm font-medium"
       >
-        {{ uploading ? 'Uploading image…' : imageId ? 'Replace image' : 'Choose recipe image' }}
+        {{ uploading ? 'Uploading image…' : imageId ? 'Replace image' : 'Choose or paste recipe image' }}
       </span>
       <span
         :class="[previewUrl ? 'text-white/80' : `text-toned`]"
         class="relative text-xs"
       >
-        No crop needed · JPEG, PNG, WebP, AVIF or HEIC
+        Paste an image anywhere in this modal · JPEG, PNG, WebP, AVIF, HEIC or HEIF
       </span>
     </button>
     <p

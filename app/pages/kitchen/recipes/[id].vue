@@ -9,9 +9,12 @@ import {
   Motion,
 } from 'motion-v'
 
+import { useCreateIngredientVariantMutation } from '~/features/ingredients/api/createIngredientVariant.mutation'
+import IngredientVariantFormModal from '~/features/ingredients/components/IngredientVariantFormModal.vue'
 import { useCompleteRecipeCookingMutation } from '~/features/recipes/api/completeRecipeCooking.mutation'
 import { useRecipeForCookingQuery } from '~/features/recipes/api/getRecipeForCooking.query'
 import RecipeCookingFinishModal from '~/features/recipes/components/RecipeCookingFinishModal.vue'
+import RecipeCookingIngredientModal from '~/features/recipes/components/RecipeCookingIngredientModal.vue'
 
 definePageMeta({
   layout: 'kitchen',
@@ -27,6 +30,23 @@ const completedStepIndexes = ref<number[]>([])
 const now = ref(Date.now())
 const ingredientsDrawerOpen = ref(false)
 const selectedIngredientType = ref<string | null>(null)
+const cookingPortions = ref<number | undefined>(undefined)
+const hasRestoredCookingSession = ref(false)
+const units = [
+  'g',
+  'kg',
+  'ml',
+  'l',
+  'tsp',
+  'tbsp',
+  'amount',
+  'can',
+  'package',
+]
+const cookingInputs = reactive<Record<string, {
+  variantId: string
+  weight: number | undefined
+}>>({})
 const activeTimers = ref<Array<{
   id: string
   startedAt: number
@@ -36,7 +56,10 @@ const activeTimers = ref<Array<{
 }>>([])
 const overlay = useOverlay()
 const finishRecipeModal = overlay.create(RecipeCookingFinishModal)
+const ingredientVariantFormModal = overlay.create(IngredientVariantFormModal)
+const cookingIngredientModal = overlay.create(RecipeCookingIngredientModal)
 const completeRecipeCookingMutation = useCompleteRecipeCookingMutation()
+const createIngredientVariantMutation = useCreateIngredientVariantMutation()
 const toast = useToast()
 const sessionKey = `recipe-organiser:cooking:${recipeId.value}`
 const timerAlert = defineSound({
@@ -57,27 +80,66 @@ let visibilityHandler: (() => void) | undefined
 
 const currentStep = computed(() => recipe.value?.steps[stepIndex.value])
 const nextStep = computed(() => recipe.value?.steps[stepIndex.value + 1])
+const portionMultiplier = computed(() => {
+  const defaultPortions = recipe.value?.defaultPortions || 1
+  const portions = cookingPortions.value || defaultPortions
+
+  return portions / defaultPortions
+})
 const ingredientTypes = computed(() => [
-  ...new Set(recipe.value?.ingredients.map((item) => item.type) || []),
+  ...new Map((recipe.value?.ingredients || [])
+    .sort((left, right) => left.typeSortOrder - right.typeSortOrder)
+    .map((item) => [
+      item.type,
+      item.type,
+    ])).values(),
 ])
-const allIngredientGroups = computed(() => {
+const ingredientSections = computed(() => {
   const ingredients = recipe.value?.ingredients || []
+  const savedSections = recipe.value?.ingredientSections || []
+  const sectionNames = [
+    ...(ingredients.some((item) => !item.groupName)
+      ? [
+          'Ingredients',
+        ]
+      : []),
+    ...savedSections,
+    ...ingredients.flatMap((item) => item.groupName && !savedSections.includes(item.groupName)
+      ? [
+          item.groupName,
+        ]
+      : []),
+  ]
 
   return [
-    ...new Map(ingredientTypes.value.map((type) => [
-      type,
-      ingredients.filter((item) => item.type === type),
-    ])).entries(),
-  ].filter(([
-    ,
-    items,
-  ]) => items.length > 0)
+    ...new Set(sectionNames),
+  ].map((sectionName) => {
+    const sectionIngredients = ingredients.filter((item) => sectionName === 'Ingredients'
+      ? !item.groupName
+      : item.groupName === sectionName)
+    const categories = ingredientTypes.value.flatMap((type) => {
+      const items = sectionIngredients.filter((item) => item.type === type
+        && (!selectedIngredientType.value || item.type === selectedIngredientType.value))
+
+      return items.length > 0
+        ? [
+            {
+              id: type,
+              name: type,
+              icon: items[0]?.typeIcon || 'i-lucide-package',
+              items,
+            },
+          ]
+        : []
+    })
+
+    return {
+      id: sectionName === 'Ingredients' ? 'default' : sectionName,
+      name: sectionName,
+      categories,
+    }
+  }).filter((section) => section.categories.length > 0)
 })
-const ingredientGroups = computed(() => selectedIngredientType.value
-  ? allIngredientGroups.value.filter(([
-      type,
-    ]) => type === selectedIngredientType.value)
-  : allIngredientGroups.value)
 const timerCards = computed(() => activeTimers.value.map((timer) => ({
   ...timer,
   paused: timer.pausedRemaining !== undefined,
@@ -86,6 +148,40 @@ const timerCards = computed(() => activeTimers.value.map((timer) => ({
     timer.durationSeconds - Math.floor((now.value - timer.startedAt) / 1000),
   ),
 })))
+const cookingCalories = computed(() => {
+  if (!recipe.value) {
+    return null
+  }
+
+  let total = 0
+  let hasNutrition = false
+
+  for (const ingredient of recipe.value.ingredients) {
+    const input = cookingInput(ingredient)
+    const variant = ingredient.variants.find((item) => item.id === input.variantId)
+    const amount = ingredient.requiresWeight ? input.weight : scaledAmount(ingredient.amount)
+    const unit = ingredient.requiresWeight ? 'g' : ingredient.unit
+    const comparableAmount = convertAmount(amount, unit, variant?.calorieUnit)
+
+    if (comparableAmount === undefined || !variant?.calories || !variant.calorieAmount) {
+      continue
+    }
+
+    hasNutrition = true
+    total += comparableAmount * variant.calories / variant.calorieAmount
+  }
+
+  return hasNutrition ? Math.round(total) : null
+})
+const cookingIngredientUsage = computed(() => recipe.value?.ingredients.map((ingredient) => {
+  const input = cookingInput(ingredient)
+
+  return {
+    ingredientId: ingredient.ingredientId,
+    variantId: input.variantId || undefined,
+    weight: ingredient.requiresWeight ? input.weight ?? null : null,
+  }
+}) || [])
 
 function formatAmount(amount: number | null, unit: string | null) {
   if (amount === null) {
@@ -93,6 +189,58 @@ function formatAmount(amount: number | null, unit: string | null) {
   }
 
   return `${amount} ${unit || ''}`.trim()
+}
+
+function scaledAmount(amount: number | null) {
+  if (amount === null) {
+    return null
+  }
+
+  return Math.round(amount * portionMultiplier.value * 100) / 100
+}
+
+function convertAmount(
+  amount: number | null | undefined,
+  fromUnit: string | null | undefined,
+  toUnit: string | null | undefined,
+) {
+  if (amount === null || amount === undefined || !fromUnit || !toUnit) {
+    return
+  }
+
+  if (fromUnit === toUnit) {
+    return amount
+  }
+
+  const units: Record<string, {
+    factor: number
+    type: 'mass' | 'volume'
+  }> = {
+    g: {
+      factor: 1,
+      type: 'mass',
+    },
+    kg: {
+      factor: 1000,
+      type: 'mass',
+    },
+    l: {
+      factor: 1000,
+      type: 'volume',
+    },
+    ml: {
+      factor: 1,
+      type: 'volume',
+    },
+  }
+  const from = units[fromUnit]
+  const to = units[toUnit]
+
+  if (!from || !to || from.type !== to.type) {
+    return
+  }
+
+  return amount * from.factor / to.factor
 }
 
 function formatTime(seconds: number) {
@@ -111,6 +259,112 @@ function startCooking() {
   if ('Notification' in window && Notification.permission === 'default') {
     void Notification.requestPermission()
   }
+}
+
+function persistCookingSession() {
+  if (!hasRestoredCookingSession.value) {
+    return
+  }
+
+  if (phase.value === 'complete') {
+    localStorage.removeItem(sessionKey)
+
+    return
+  }
+
+  localStorage.setItem(sessionKey, JSON.stringify({
+    activeTimers: activeTimers.value,
+    completedStepIndexes: completedStepIndexes.value,
+    cookingInputs,
+    phase: phase.value,
+    portions: cookingPortions.value,
+    stepIndex: stepIndex.value,
+  }))
+}
+
+function cookingInput(ingredient: { id: string
+  variants: Array<{ id: string
+    isDefault?: number }> }) {
+  const existing = cookingInputs[ingredient.id]
+
+  if (existing) {
+    return existing
+  }
+
+  const defaultVariant = ingredient.variants.find((variant) => variant.isDefault) || ingredient.variants[0]
+  const created = {
+    variantId: defaultVariant?.id || '',
+    weight: undefined,
+  }
+
+  cookingInputs[ingredient.id] = created
+
+  return created
+}
+
+async function addIngredientVariant(ingredient: {
+  id: string
+  ingredientId: string
+  name: string
+}) {
+  const variant = await ingredientVariantFormModal.open({
+    ingredientName: ingredient.name,
+    units,
+  })
+
+  if (!variant) {
+    return
+  }
+
+  const created = await createIngredientVariantMutation.mutateAsync({
+    ...variant,
+    ingredientId: ingredient.ingredientId,
+    calorieAmount: variant.calorieAmount ?? null,
+    calories: variant.calories ?? null,
+    calorieUnit: variant.calorieUnit || null,
+  })
+
+  const cookingInputForIngredient = cookingInputs[ingredient.id] || {
+    variantId: '',
+    weight: undefined,
+  }
+
+  cookingInputForIngredient.variantId = created.id
+  cookingInputs[ingredient.id] = cookingInputForIngredient
+  await recipeQuery.refetch()
+}
+
+async function editCookingIngredient(ingredient: {
+  id: string
+  ingredientId: string
+  name: string
+  requiresWeight: boolean
+  variants: Array<{
+    id: string
+    name: string
+  }>
+}) {
+  const input = cookingInput(ingredient)
+  const result = await cookingIngredientModal.open({
+    initialVariantId: input.variantId,
+    ingredientName: ingredient.name,
+    initialWeight: input.weight,
+    requiresWeight: ingredient.requiresWeight,
+    variants: ingredient.variants,
+  })
+
+  if (!result) {
+    return
+  }
+
+  if (result.type === 'add-variant') {
+    await addIngredientVariant(ingredient)
+
+    return
+  }
+
+  input.variantId = result.variantId
+  input.weight = result.weight
 }
 
 function startTimer() {
@@ -172,6 +426,8 @@ async function finishCooking() {
 
   await completeRecipeCookingMutation.mutateAsync({
     recipeId: recipe.value.id,
+    calories: cookingCalories.value,
+    ingredientUsage: cookingIngredientUsage.value,
     note: result.note,
   })
   localStorage.removeItem(sessionKey)
@@ -220,19 +476,26 @@ onMounted(() => {
       const session = JSON.parse(stored) as {
         activeTimers: typeof activeTimers.value
         completedStepIndexes: number[]
+        cookingInputs?: typeof cookingInputs
         phase: typeof phase.value
+        portions?: number
         stepIndex: number
       }
 
       activeTimers.value = session.activeTimers || []
+      Object.assign(cookingInputs, session.cookingInputs || {})
       completedStepIndexes.value = session.completedStepIndexes || []
       phase.value = session.phase === 'complete' ? 'ingredients' : session.phase
+      cookingPortions.value = session.portions
       stepIndex.value = Math.max(0, session.stepIndex || 0)
     }
     catch {
       localStorage.removeItem(sessionKey)
     }
   }
+
+  hasRestoredCookingSession.value = true
+  persistCookingSession()
 
   visibilityHandler = () => {
     if (document.visibilityState === 'visible' && phase.value === 'steps') {
@@ -268,26 +531,28 @@ onMounted(() => {
 watch([
   activeTimers,
   completedStepIndexes,
+  cookingInputs,
   phase,
+  cookingPortions,
   stepIndex,
 ], () => {
-  if (phase.value === 'complete') {
-    localStorage.removeItem(sessionKey)
-
-    return
-  }
-
-  localStorage.setItem(sessionKey, JSON.stringify({
-    activeTimers: activeTimers.value,
-    completedStepIndexes: completedStepIndexes.value,
-    phase: phase.value,
-    stepIndex: stepIndex.value,
-  }))
+  persistCookingSession()
 }, {
   deep: true,
+  flush: 'sync',
+})
+
+watch(recipe, (savedRecipe) => {
+  if (savedRecipe && !cookingPortions.value) {
+    cookingPortions.value = savedRecipe.defaultPortions
+  }
+}, {
+  immediate: true,
 })
 
 onBeforeUnmount(() => {
+  persistCookingSession()
+
   if (timerInterval) {
     clearInterval(timerInterval)
   }
@@ -340,7 +605,17 @@ onBeforeUnmount(() => {
         color="neutral"
         variant="ghost"
       />
-      <span class="text-sm text-toned">{{ recipe.defaultPortions }} portions</span>
+      <div class="flex items-center gap-2 text-sm text-toned">
+        <span>Portions</span>
+        <UInput
+          v-model.number="cookingPortions"
+          type="number"
+          min="1"
+          step="1"
+          class="w-18"
+          aria-label="Portions"
+        />
+      </div>
     </div>
 
     <section
@@ -393,44 +668,87 @@ onBeforeUnmount(() => {
         </div>
         <div class="flex flex-col gap-4">
           <section
-            v-for="[type, ingredients] in allIngredientGroups"
-            :key="type"
-            class="flex flex-col gap-2"
+            v-for="section in ingredientSections"
+            :key="section.id"
+            class="flex flex-col gap-4"
           >
-            <div class="flex items-center gap-2 px-1">
-              <UIcon
-                :name="ingredients[0]?.typeIcon || 'i-lucide-package'"
-                class="size-4 text-primary"
-              />
-              <h3 class="text-sm font-medium text-toned">
-                {{ type }}
-              </h3>
-            </div>
-            <div class="overflow-hidden rounded-2xl border border-default">
-              <div
-                v-for="ingredient in ingredients"
-                :key="ingredient.id"
-                class="
-                  flex items-center justify-between gap-4 border-b
-                  border-default px-4 py-3
-                  last:border-b-0
-                "
-              >
-                <div class="flex min-w-0 items-center gap-3">
-                  <span class="size-2 shrink-0 rounded-full bg-primary" />
-                  <span
-                    :class="ingredient.isOptional ? 'text-toned' : `
-                      text-highlighted
-                    `"
-                  >{{ ingredient.name }}</span>
-                  <span
-                    v-if="ingredient.isOptional"
-                    class="text-xs text-toned"
-                  >optional</span>
-                </div>
-                <span class="shrink-0 font-medium text-highlighted">{{ formatAmount(ingredient.amount, ingredient.unit) }}</span>
+            <h3 class="font-medium text-highlighted">
+              {{ section.name }}
+            </h3>
+            <section
+              v-for="category in section.categories"
+              :key="category.id"
+              class="flex flex-col gap-2"
+            >
+              <div class="flex items-center gap-2 px-1">
+                <UIcon
+                  :name="category.icon"
+                  class="size-4 text-primary"
+                />
+                <h4 class="text-sm font-medium text-toned">
+                  {{ category.name }}
+                </h4>
               </div>
-            </div>
+              <div class="overflow-hidden rounded-2xl border border-default">
+                <div
+                  v-for="ingredient in category.items"
+                  :key="ingredient.id"
+                  class="
+                    flex flex-col gap-3 border-b border-default px-4 py-3
+                    last:border-b-0
+                  "
+                >
+                  <div class="flex items-center justify-between gap-4">
+                    <div class="flex min-w-0 items-center gap-3">
+                      <span class="size-2 shrink-0 rounded-full bg-primary" />
+                      <span
+                        :class="ingredient.isOptional ? 'text-toned' : `
+                          text-highlighted
+                        `"
+                      >{{ ingredient.name }}</span>
+                      <span
+                        v-if="ingredient.isOptional"
+                        class="text-xs text-toned"
+                      >optional</span>
+                    </div>
+                    <div class="flex shrink-0 items-center gap-2">
+                      <span class="font-medium text-highlighted">{{ formatAmount(scaledAmount(ingredient.amount), ingredient.unit) }}</span>
+                      <USelectMenu
+                        v-if="ingredient.variants.length > 1"
+                        v-model="cookingInput(ingredient).variantId"
+                        :items="ingredient.variants"
+                        value-key="id"
+                        label-key="name"
+                        class="w-52"
+                      />
+                      <div
+                        v-if="ingredient.requiresWeight"
+                        class="flex items-center gap-1"
+                      >
+                        <UInput
+                          v-model.number="cookingInput(ingredient).weight"
+                          type="number"
+                          min="0"
+                          step="any"
+                          placeholder="Weight"
+                          class="w-28"
+                          aria-label="Actual weight in grams"
+                        />
+                        <span class="text-sm text-toned">g</span>
+                      </div>
+                      <UButton
+                        label="Add variant"
+                        icon="i-lucide-plus"
+                        color="neutral"
+                        variant="ghost"
+                        size="sm"
+                        @click="addIngredientVariant(ingredient)"
+                      />
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </section>
           </section>
         </div>
       </div>
@@ -453,13 +771,19 @@ onBeforeUnmount(() => {
       <div class="flex min-w-0 flex-col gap-5">
         <div class="flex items-center justify-between gap-3 text-sm text-toned">
           <span>Step {{ stepIndex + 1 }} of {{ recipe.steps.length }}</span>
-          <UButton
-            label="Ingredients"
-            color="neutral"
-            variant="ghost"
-            size="sm"
-            @click="ingredientsDrawerOpen = true"
-          />
+          <div class="flex items-center gap-2">
+            <span
+              v-if="cookingCalories !== null"
+              class="font-medium text-highlighted"
+            >{{ cookingCalories }} kcal total</span>
+            <UButton
+              label="Ingredients"
+              color="neutral"
+              variant="ghost"
+              size="sm"
+              @click="ingredientsDrawerOpen = true"
+            />
+          </div>
         </div>
         <AnimatePresence mode="popLayout">
           <Motion
@@ -762,45 +1086,71 @@ onBeforeUnmount(() => {
           </div>
           <div class="flex flex-col gap-5">
             <section
-              v-for="[type, ingredients] in ingredientGroups"
-              :key="type"
-              class="flex flex-col gap-2"
+              v-for="section in ingredientSections"
+              :key="section.id"
+              class="flex flex-col gap-4"
             >
-              <h2 class="text-sm font-medium text-toned">
-                {{ type }}
+              <h2 class="font-medium text-highlighted">
+                {{ section.name }}
               </h2>
-              <div class="overflow-hidden rounded-2xl bg-elevated">
-                <div
-                  v-for="ingredient in ingredients"
-                  :key="ingredient.id"
-                  class="
-                    flex items-center justify-between gap-4 border-b
-                    border-default px-4 py-3
-                    last:border-b-0
-                  "
-                >
-                  <div class="flex min-w-0 items-center gap-3">
-                    <UIcon
-                      :name="ingredient.typeIcon"
-                      class="size-4 shrink-0 text-primary"
-                    />
-                    <span
-                      :class="ingredient.isOptional ? 'text-toned' : `
-                        text-highlighted
-                      `"
-                    >
-                      {{ ingredient.name }}
-                    </span>
-                    <span
-                      v-if="ingredient.isOptional"
-                      class="text-xs text-toned"
-                    >optional</span>
-                  </div>
-                  <span class="shrink-0 font-medium text-highlighted">
-                    {{ formatAmount(ingredient.amount, ingredient.unit) }}
-                  </span>
+              <section
+                v-for="category in section.categories"
+                :key="category.id"
+                class="flex flex-col gap-2"
+              >
+                <div class="flex items-center gap-2">
+                  <UIcon
+                    :name="category.icon"
+                    class="size-4 text-primary"
+                  />
+                  <h3 class="text-sm font-medium text-toned">
+                    {{ category.name }}
+                  </h3>
                 </div>
-              </div>
+                <div class="overflow-hidden rounded-2xl bg-elevated">
+                  <div
+                    v-for="ingredient in category.items"
+                    :key="ingredient.id"
+                    class="
+                      flex flex-col gap-3 border-b border-default px-4 py-3
+                      last:border-b-0
+                    "
+                  >
+                    <div class="flex items-center justify-between gap-4">
+                      <div class="flex min-w-0 items-center gap-3">
+                        <UIcon
+                          :name="ingredient.typeIcon"
+                          class="size-4 shrink-0 text-primary"
+                        />
+                        <span
+                          :class="ingredient.isOptional ? 'text-toned' : `
+                            text-highlighted
+                          `"
+                        >
+                          {{ ingredient.name }}
+                        </span>
+                        <span
+                          v-if="ingredient.isOptional"
+                          class="text-xs text-toned"
+                        >optional</span>
+                      </div>
+                      <div class="flex shrink-0 items-center gap-2">
+                        <span class="font-medium text-highlighted">
+                          {{ formatAmount(scaledAmount(ingredient.amount), ingredient.unit) }}
+                        </span>
+                        <UButton
+                          label="Edit"
+                          icon="i-lucide-pencil"
+                          color="neutral"
+                          variant="ghost"
+                          size="sm"
+                          @click="editCookingIngredient(ingredient)"
+                        />
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </section>
             </section>
           </div>
         </div>

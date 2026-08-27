@@ -14,6 +14,7 @@ import { db } from '../../db'
 import {
   ingredient,
   ingredientType,
+  ingredientVariant,
   recipe,
   recipeCooking,
   recipeImportJob,
@@ -184,6 +185,33 @@ function ingredientKey(name: string, unit: string | null) {
   return `${name.toLocaleLowerCase().replaceAll(/[^a-z0-9]+/g, '')}:${unit || ''}`
 }
 
+function ingredientLibraryKey(name: string) {
+  return name
+    .normalize('NFD')
+    .replaceAll(/[\u0300-\u036F]/g, '')
+    .toLocaleLowerCase()
+    .replaceAll(/[^a-z0-9]+/g, ' ')
+    .trim()
+    .split(' ')
+    .map((word) => {
+      if (word.endsWith('ies')) {
+        return `${word.slice(0, -3)}y`
+      }
+      if (word.endsWith('oes')) {
+        return `${word.slice(0, -2)}`
+      }
+      if (/(?:ches|shes|sses|xes|zes)$/.test(word)) {
+        return word.slice(0, -2)
+      }
+      if (word.endsWith('s') && !/(?:ss|us|is)$/.test(word)) {
+        return word.slice(0, -1)
+      }
+
+      return word
+    })
+    .join(' ')
+}
+
 function normalizedImportedIngredients(items: ImportedRecipe['ingredients']) {
   const splitItems = items.flatMap((item) => {
     const alternatives = item.name.split(/\s+or\s+/i).map((name) => name.trim()).filter(Boolean)
@@ -213,7 +241,7 @@ function normalizedImportedIngredients(items: ImportedRecipe['ingredients']) {
   const merged = new Map<string, ImportedRecipe['ingredients'][number]>()
 
   for (const item of splitItems) {
-    const key = ingredientKey(item.name, item.unit)
+    const key = `${ingredientKey(item.name, item.unit)}:${item.groupName || ''}`
     const existing = merged.get(key)
 
     if (!existing) {
@@ -368,6 +396,7 @@ const recipeIngredientSchema = v.object({
   ingredientId: v.pipe(v.string(), v.uuid()),
   isOptional: v.boolean(),
   amount: v.optional(v.nullable(v.pipe(v.number(), v.minValue(0)))),
+  groupName: v.optional(v.nullable(v.pipe(v.string(), v.trim(), v.minLength(1), v.maxLength(120)))),
   note: v.optional(v.nullable(v.pipe(v.string(), v.trim(), v.maxLength(240)))),
   unit: v.optional(v.nullable(v.pipe(v.string(), v.trim(), v.maxLength(30)))),
 })
@@ -389,6 +418,7 @@ const createRecipeInput = v.object({
   defaultPortions: v.pipe(v.number(), v.integer(), v.minValue(1), v.maxValue(100)),
   description: v.optional(v.nullable(v.pipe(v.string(), v.trim(), v.maxLength(2000)))),
   ingredients: v.array(recipeIngredientSchema),
+  ingredientSections: v.optional(v.array(v.pipe(v.string(), v.trim(), v.minLength(1), v.maxLength(120)))),
   notes: v.optional(v.nullable(v.pipe(v.string(), v.trim(), v.maxLength(6000)))),
   prepTimeMinutes: v.optional(v.nullable(v.pipe(v.number(), v.integer(), v.minValue(0), v.maxValue(1440)))),
   sourceName: v.optional(v.nullable(v.pipe(v.string(), v.trim(), v.maxLength(160)))),
@@ -426,6 +456,7 @@ const listRecipeFormData = protectedProcedure.input(v.object({})).handler(async 
     types,
     ingredients,
     labels,
+    variants,
   ] = await Promise.all([
     db.query.ingredientType.findMany({
       orderBy: (table) => asc(table.sortOrder),
@@ -439,13 +470,34 @@ const listRecipeFormData = protectedProcedure.input(v.object({})).handler(async 
       orderBy: (table) => asc(table.name),
       where: eq(recipeLabel.createdById, context.user.id),
     }),
+    db.query.ingredientVariant.findMany(),
   ])
 
+  const variantsByIngredientId = new Map<string, typeof variants>()
+
+  variants.forEach((variant) => {
+    const items = variantsByIngredientId.get(variant.ingredientId) || []
+
+    items.push(variant)
+    variantsByIngredientId.set(variant.ingredientId, items)
+  })
+
   return {
-    ingredients,
+    ingredients: ingredients.map((item) => ({
+      ...item,
+      variants: variantsByIngredientId.get(item.id) || [],
+    })),
     labels,
     types,
   }
+})
+
+const ingredientVariantInput = v.object({
+  isDefault: v.optional(v.boolean()),
+  name: v.pipe(v.string(), v.trim(), v.minLength(1), v.maxLength(120)),
+  calorieAmount: v.optional(v.nullable(v.pipe(v.number(), v.minValue(0.001), v.maxValue(100_000)))),
+  calories: v.optional(v.nullable(v.pipe(v.number(), v.integer(), v.minValue(0), v.maxValue(100_000)))),
+  calorieUnit: v.optional(v.nullable(v.pipe(v.string(), v.trim(), v.maxLength(30)))),
 })
 
 const createIngredientInput = v.object({
@@ -457,6 +509,8 @@ const createIngredientInput = v.object({
   calorieUnit: v.optional(v.nullable(v.pipe(v.string(), v.trim(), v.maxLength(30)))),
   defaultUnit: v.optional(v.nullable(v.pipe(v.string(), v.trim(), v.maxLength(30)))),
   gramsPerUnit: v.optional(v.nullable(v.pipe(v.number(), v.minValue(0), v.maxValue(100_000)))),
+  requiresWeight: v.optional(v.boolean()),
+  variants: v.optional(v.pipe(v.array(ingredientVariantInput), v.minLength(1))),
 })
 const createRecipeLabelInput = v.object({
   name: v.pipe(v.string(), v.trim(), v.minLength(1), v.maxLength(160)),
@@ -506,13 +560,42 @@ const createIngredient = protectedProcedure.input(createIngredientInput).handler
       throw new ORPCError('FORBIDDEN')
     }
   }
-  const [
-    created,
-  ] = await db.insert(ingredient).values({
-    ...input,
-    createdById: context.user.id,
-    name: capitalizeIngredientName(input.name),
-  }).returning()
+  const created = await db.transaction(async (tx) => {
+    const variants = input.variants || [
+      {
+        name: 'Generic',
+        calorieAmount: input.calorieAmount ?? null,
+        calories: input.calories ?? input.caloriesPer100g ?? null,
+        calorieUnit: input.calorieUnit ?? (input.caloriesPer100g ? 'g' : null),
+        isDefault: true,
+      },
+    ]
+    const defaultVariant = variants.find((item) => item.isDefault) || variants[0]
+    const [
+      newIngredient,
+    ] = await tx.insert(ingredient).values({
+      ...input,
+      createdById: context.user.id,
+      name: capitalizeIngredientName(input.name),
+      calorieAmount: defaultVariant?.calorieAmount ?? null,
+      calories: defaultVariant?.calories ?? null,
+      caloriesPer100g: null,
+      calorieUnit: defaultVariant?.calorieUnit ?? null,
+      requiresWeight: input.requiresWeight ? 1 : 0,
+    }).returning()
+
+    if (!newIngredient) {
+      throw new ORPCError('INTERNAL_SERVER_ERROR')
+    }
+
+    await tx.insert(ingredientVariant).values(variants.map((variant, index) => ({
+      ...variant,
+      ingredientId: newIngredient.id,
+      isDefault: variant.isDefault || (!variants.some((item) => item.isDefault) && index === 0) ? 1 : 0,
+    })))
+
+    return newIngredient
+  })
 
   if (!created) {
     throw new ORPCError('INTERNAL_SERVER_ERROR')
@@ -531,6 +614,8 @@ const updateIngredientInput = v.object({
   calorieUnit: v.optional(v.nullable(v.pipe(v.string(), v.trim(), v.maxLength(30)))),
   defaultUnit: v.optional(v.nullable(v.pipe(v.string(), v.trim(), v.maxLength(30)))),
   gramsPerUnit: v.optional(v.nullable(v.pipe(v.number(), v.minValue(0), v.maxValue(100_000)))),
+  requiresWeight: v.optional(v.boolean()),
+  variants: v.optional(v.pipe(v.array(ingredientVariantInput), v.minLength(1))),
 })
 const updateIngredient = protectedProcedure.input(updateIngredientInput).handler(async ({
   context, input,
@@ -544,24 +629,79 @@ const updateIngredient = protectedProcedure.input(updateIngredientInput).handler
       throw new ORPCError('FORBIDDEN')
     }
   }
-  const [
-    updated,
-  ] = await db.update(ingredient).set({
-    typeId: input.typeId,
-    name: input.name ? capitalizeIngredientName(input.name) : undefined,
-    calorieAmount: input.calorieAmount,
-    calories: input.calories,
-    caloriesPer100g: input.caloriesPer100g,
-    calorieUnit: input.calorieUnit,
-    defaultUnit: input.defaultUnit,
-    gramsPerUnit: input.gramsPerUnit,
-  }).where(and(eq(ingredient.id, input.id), eq(ingredient.createdById, context.user.id))).returning()
+  const updated = await db.transaction(async (tx) => {
+    const variants = input.variants
+    const defaultVariant = variants?.find((item) => item.isDefault) || variants?.[0]
+    const requiresWeight = input.requiresWeight === undefined
+      ? undefined
+      : Number(input.requiresWeight)
+    const [
+      changed,
+    ] = await tx.update(ingredient).set({
+      typeId: input.typeId,
+      name: input.name ? capitalizeIngredientName(input.name) : undefined,
+      calorieAmount: defaultVariant?.calorieAmount ?? input.calorieAmount,
+      calories: defaultVariant?.calories ?? input.calories,
+      caloriesPer100g: input.caloriesPer100g,
+      calorieUnit: defaultVariant?.calorieUnit ?? input.calorieUnit,
+      defaultUnit: input.defaultUnit,
+      gramsPerUnit: input.gramsPerUnit,
+      requiresWeight,
+    }).where(and(eq(ingredient.id, input.id), eq(ingredient.createdById, context.user.id))).returning()
+
+    if (!changed || !variants) {
+      return changed
+    }
+
+    await tx.delete(ingredientVariant).where(eq(ingredientVariant.ingredientId, changed.id))
+    await tx.insert(ingredientVariant).values(variants.map((variant, index) => ({
+      ...variant,
+      ingredientId: changed.id,
+      isDefault: variant.isDefault || (!variants.some((item) => item.isDefault) && index === 0) ? 1 : 0,
+    })))
+
+    return changed
+  })
 
   if (!updated) {
     throw new ORPCError('NOT_FOUND')
   }
 
   return updated
+})
+
+const createIngredientVariant = protectedProcedure.input(v.object({
+  ingredientId: v.pipe(v.string(), v.uuid()),
+  name: v.pipe(v.string(), v.trim(), v.minLength(1), v.maxLength(120)),
+  calorieAmount: v.optional(v.nullable(v.pipe(v.number(), v.minValue(0.001), v.maxValue(100_000)))),
+  calories: v.optional(v.nullable(v.pipe(v.number(), v.integer(), v.minValue(0), v.maxValue(100_000)))),
+  calorieUnit: v.optional(v.nullable(v.pipe(v.string(), v.trim(), v.maxLength(30)))),
+})).handler(async ({
+  context, input,
+}) => {
+  const savedIngredient = await db.query.ingredient.findFirst({
+    where: and(
+      eq(ingredient.id, input.ingredientId),
+      eq(ingredient.createdById, context.user.id),
+    ),
+  })
+
+  if (!savedIngredient) {
+    throw new ORPCError('NOT_FOUND')
+  }
+
+  const [
+    created,
+  ] = await db.insert(ingredientVariant).values({
+    ...input,
+    isDefault: 0,
+  }).returning()
+
+  if (!created) {
+    throw new ORPCError('INTERNAL_SERVER_ERROR')
+  }
+
+  return created
 })
 
 const deleteIngredient = protectedProcedure.input(v.object({
@@ -801,7 +941,7 @@ const listRecipes = publicProcedure.input(v.object({
       image: image
         ? {
             id: image.id,
-            url: await createReadUrl(image.variantKeys.thumbnail),
+            url: await createReadUrl(image.variantKeys.desktop),
           }
         : null,
       ingredients: ingredientNamesByRecipeId.get(savedRecipe.id) || [],
@@ -881,6 +1021,11 @@ const getRecipeForCooking = publicProcedure.input(v.object({
     : await db.query.ingredient.findMany({
         where: inArray(ingredient.id, ingredientIds),
       })
+  const variants = ingredientIds.length === 0
+    ? []
+    : await db.query.ingredientVariant.findMany({
+        where: inArray(ingredientVariant.ingredientId, ingredientIds),
+      })
   const ingredientById = new Map(savedIngredients.map((item) => [
     item.id,
     item,
@@ -893,12 +1038,21 @@ const getRecipeForCooking = publicProcedure.input(v.object({
   const savedTypes = typeIds.length === 0
     ? []
     : await db.query.ingredientType.findMany({
+        orderBy: (table) => asc(table.sortOrder),
         where: inArray(ingredientType.id, typeIds),
       })
   const typeById = new Map(savedTypes.map((item) => [
     item.id,
     item,
   ]))
+  const variantsByIngredientId = new Map<string, typeof variants>()
+
+  variants.forEach((variant) => {
+    const items = variantsByIngredientId.get(variant.ingredientId) || []
+
+    items.push(variant)
+    variantsByIngredientId.set(variant.ingredientId, items)
+  })
 
   return {
     ...savedRecipe,
@@ -917,13 +1071,20 @@ const getRecipeForCooking = publicProcedure.input(v.object({
         ? [
             {
               id: item.id,
+              ingredientId: savedIngredient.id,
               isOptional: Boolean(item.isOptional),
               name: savedIngredient.name,
               amount: item.amount,
+              groupName: item.groupName,
               note: item.note,
+              requiresWeight: Boolean(savedIngredient.requiresWeight),
               type: type?.name || 'Other',
               typeIcon: type?.icon || 'i-lucide-package',
+              typeSortOrder: type?.sortOrder || Number.MAX_SAFE_INTEGER,
               unit: item.unit || savedIngredient.defaultUnit,
+              variants: (variantsByIngredientId.get(savedIngredient.id) || []).sort(
+                (left, right) => right.isDefault - left.isDefault,
+              ),
             },
           ]
         : []
@@ -934,6 +1095,12 @@ const getRecipeForCooking = publicProcedure.input(v.object({
 
 const completeRecipeCooking = publicProcedure.input(v.object({
   recipeId: v.pipe(v.string(), v.uuid()),
+  calories: v.optional(v.nullable(v.pipe(v.number(), v.integer(), v.minValue(0), v.maxValue(1_000_000)))),
+  ingredientUsage: v.optional(v.array(v.object({
+    ingredientId: v.pipe(v.string(), v.uuid()),
+    variantId: v.optional(v.pipe(v.string(), v.uuid())),
+    weight: v.optional(v.nullable(v.pipe(v.number(), v.minValue(0), v.maxValue(100_000)))),
+  }))),
   note: v.optional(v.pipe(v.string(), v.trim(), v.maxLength(2000))),
 })).handler(async ({
   input,
@@ -951,6 +1118,8 @@ const completeRecipeCooking = publicProcedure.input(v.object({
   ] = await db.insert(recipeCooking).values({
     createdById: savedRecipe.createdById,
     recipeId: savedRecipe.id,
+    calories: input.calories ?? null,
+    ingredientUsage: input.ingredientUsage || [],
     note: input.note || null,
   }).returning()
 
@@ -1039,6 +1208,7 @@ const createRecipe = protectedProcedure.input(createRecipeInput).handler(async (
       cuisine: input.cuisine || null,
       defaultPortions: input.defaultPortions,
       description: input.description || null,
+      ingredientSections: input.ingredientSections || [],
       notes: input.notes || null,
       prepTimeMinutes: input.prepTimeMinutes ?? null,
       sourceName: input.sourceName || null,
@@ -1102,7 +1272,7 @@ async function saveImportedRecipe(input: {
     }),
   ])
   const ingredientByName = new Map(existingIngredients.map((item) => [
-    item.name.trim().toLocaleLowerCase(),
+    ingredientLibraryKey(item.name),
     item,
   ]))
   const typeByName = new Map(ingredientTypes.map((item) => [
@@ -1115,7 +1285,7 @@ async function saveImportedRecipe(input: {
     const result: Array<typeof existingIngredients[number]> = []
 
     for (const item of importedIngredients) {
-      const key = item.name.trim().toLocaleLowerCase()
+      const key = ingredientLibraryKey(item.name)
       let savedIngredient = ingredientByName.get(key)
       const typeId = importedTypeId(item, typeByName, fallbackType)
       const name = capitalizeIngredientName(item.name)
@@ -1132,17 +1302,26 @@ async function saveImportedRecipe(input: {
           calories: nutrition.calories,
           calorieUnit: nutrition.calorieUnit,
           defaultUnit: item.defaultUnit || nutrition.calorieUnit || item.unit,
+          requiresWeight: item.requiresWeight ? 1 : 0,
         }).returning()
 
         if (!created) {
           throw new ORPCError('INTERNAL_SERVER_ERROR')
         }
 
+        await tx.insert(ingredientVariant).values({
+          ingredientId: created.id,
+          isDefault: 1,
+          name: 'Generic',
+          calorieAmount: nutrition.calorieAmount,
+          calories: nutrition.calories,
+          calorieUnit: nutrition.calorieUnit,
+        })
+
         savedIngredient = created
         ingredientByName.set(key, created)
       }
-      else if (savedIngredient.name !== name
-        || (savedIngredient.typeId === fallbackType?.id && typeId && typeId !== fallbackType.id)) {
+      else if (savedIngredient.typeId === fallbackType?.id && typeId && typeId !== fallbackType.id) {
         const [
           updated,
         ] = await tx.update(ingredient).set({
@@ -1181,6 +1360,13 @@ async function saveImportedRecipe(input: {
       cuisine: input.imported.cuisine || null,
       defaultPortions: input.imported.defaultPortions,
       description: input.imported.description || null,
+      ingredientSections: [
+        ...new Set(recipeIngredients.flatMap((item) => item.groupName
+          ? [
+              item.groupName,
+            ]
+          : [])),
+      ],
       prepTimeMinutes: input.imported.prepTimeMinutes,
       sourceName: input.sourceName || null,
       sourceUrl: input.sourceUrl || null,
@@ -1197,6 +1383,7 @@ async function saveImportedRecipe(input: {
         recipeId: created.id,
         isOptional: item.isOptional ? 1 : 0,
         amount: item.amount,
+        groupName: item.groupName,
         note: item.note,
         sortOrder,
         unit: item.unit,
@@ -1450,6 +1637,7 @@ const updateRecipe = protectedProcedure.input(updateRecipeInput).handler(async (
       cuisine: input.cuisine || null,
       defaultPortions: input.defaultPortions,
       description: input.description || null,
+      ingredientSections: input.ingredientSections || [],
       notes: input.notes || null,
       prepTimeMinutes: input.prepTimeMinutes ?? null,
       sourceName: input.sourceName || null,
@@ -1653,6 +1841,7 @@ export const recipesRouter = {
   completeRecipeCooking,
   createIngredient,
   createIngredientType,
+  createIngredientVariant,
   createRecipe,
   createRecipeLabel,
   deleteIngredient,

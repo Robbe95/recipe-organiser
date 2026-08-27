@@ -1,0 +1,1 @@
+ALTER TABLE "recipes"."recipe_ingredient" ADD COLUMN "group_name" text;

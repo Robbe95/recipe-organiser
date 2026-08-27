@@ -58,7 +58,22 @@ export const ingredient = recipesSchema.table('ingredient', {
   calorieUnit: text('calorie_unit'),
   defaultUnit: text('default_unit'),
   gramsPerUnit: doublePrecision('grams_per_unit'),
+  requiresWeight: integer('requires_weight').notNull().default(0),
 })
+
+export const ingredientVariant = recipesSchema.table('ingredient_variant', {
+  id: uuid('id').defaultRandom().primaryKey(),
+  ingredientId: uuid('ingredient_id').notNull().references(() => ingredient.id, {
+    onDelete: 'cascade',
+  }),
+  isDefault: integer('is_default').notNull().default(0),
+  name: text('name').notNull().default('Generic'),
+  calorieAmount: doublePrecision('calorie_amount'),
+  calories: integer('calories'),
+  calorieUnit: text('calorie_unit'),
+}, (table) => [
+  uniqueIndex('ingredient_variant_ingredient_name_unique').on(table.ingredientId, table.name),
+])
 
 export const recipe = recipesSchema.table('recipe', {
   id: uuid('id').defaultRandom().primaryKey(),
@@ -83,6 +98,7 @@ export const recipe = recipesSchema.table('recipe', {
   cuisine: text('cuisine'),
   defaultPortions: integer('default_portions').notNull().default(2),
   description: text('description'),
+  ingredientSections: text('ingredient_sections').array().notNull().default([]),
   notes: text('notes'),
   prepTimeMinutes: integer('prep_time_minutes'),
   sourceName: text('source_name'),
@@ -118,6 +134,7 @@ export const recipeIngredient = recipesSchema.table('recipe_ingredient', {
   }),
   isOptional: integer('is_optional').notNull().default(0),
   amount: doublePrecision('amount'),
+  groupName: text('group_name'),
   note: text('note'),
   sortOrder: integer('sort_order').notNull().default(0),
   unit: text('unit'),
@@ -146,6 +163,8 @@ export const recipeCooking = recipesSchema.table('recipe_cooking', {
   createdAt: timestamp('created_at', {
     withTimezone: true,
   }).notNull().defaultNow(),
+  calories: integer('calories'),
+  ingredientUsage: jsonb('ingredient_usage').notNull().default([]),
   note: text('note'),
 })
 

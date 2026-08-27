@@ -1,19 +1,35 @@
 <script setup lang="ts">
 import type { IngredientRow } from './recipeEditorTypes'
 
-defineProps<{
+const props = defineProps<{
   ingredientOptions: Array<{ id: string
     name: string }>
+  sections: string[]
 }>()
-
 const emit = defineEmits<{
   create: [name: string]
+  move: [sectionName: string]
   remove: []
   select: []
 }>()
 const item = defineModel<IngredientRow>('item', {
   required: true,
 })
+
+const moveItems = computed(() => [
+  [
+    {
+      icon: 'i-lucide-list',
+      label: 'Ingredients',
+      onSelect: () => emit('move', ''),
+    },
+    ...props.sections.map((section) => ({
+      icon: 'i-lucide-list-tree',
+      label: section,
+      onSelect: () => emit('move', section),
+    })),
+  ],
+])
 
 function unitLabel() {
   return item.value.unit || '—'
@@ -24,7 +40,7 @@ function unitLabel() {
   <div
     class="
       grid items-center gap-3
-      sm:grid-cols-[auto_minmax(0,1fr)_140px_auto_auto]
+      sm:grid-cols-[auto_minmax(0,1fr)_140px_auto_auto_auto]
     "
   >
     <UButton
@@ -55,14 +71,21 @@ function unitLabel() {
         min="0"
         step="any"
         placeholder="Amount"
-      /><span
-        class="min-w-12 text-sm text-toned"
-      >{{ unitLabel() }}</span>
+      />
+      <span class="min-w-12 text-sm text-toned">{{ unitLabel() }}</span>
     </div>
     <UCheckbox
       v-model="item.isOptional"
       label="Optional"
     />
+    <UDropdownMenu :items="moveItems">
+      <UButton
+        icon="i-lucide-folder-input"
+        color="neutral"
+        variant="ghost"
+        aria-label="Move ingredient to section"
+      />
+    </UDropdownMenu>
     <UButton
       icon="i-lucide-trash-2"
       color="neutral"

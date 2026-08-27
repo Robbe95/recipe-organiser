@@ -12,6 +12,14 @@ const props = defineProps<{
     caloriesPer100g: number | null
     calorieUnit: string | null
     defaultUnit: string | null
+    requiresWeight: number
+    variants: Array<{
+      isDefault: number
+      name: string
+      calorieAmount: number | null
+      calories: number | null
+      calorieUnit: string | null
+    }>
   }
   selected?: boolean
 }>()

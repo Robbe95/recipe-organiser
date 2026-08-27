@@ -94,31 +94,49 @@ async function importRecipe() {
       <div class="flex flex-col gap-5">
         <div class="flex flex-col gap-1">
           <p class="text-sm text-toned">
-            Choose one source. We’ll turn it into an editable recipe draft.
+            Choose a source. The AI creates a draft with Generic nutrition for every ingredient, ready for you to check.
           </p>
         </div>
 
-        <div class="flex flex-col gap-2">
-          <p class="text-sm font-medium text-highlighted">
-            Upload an image
-          </p>
-          <p class="text-xs text-dimmed">
-            A photo, screenshot, or scanned recipe.
-          </p>
-        </div>
-        <RecipeImportImageUpload
-          v-model="imageId"
+        <UTabs
+          v-model="importMode"
+          :content="false"
+          :items="[
+            { label: 'Image',
+              value: 'image',
+              icon: 'i-lucide-image' },
+            { label: 'Website',
+              value: 'url',
+              icon: 'i-lucide-link' },
+            { label: 'Text',
+              value: 'text',
+              icon: 'i-lucide-align-left' },
+          ]"
+          class="w-full"
+          variant="link"
         />
 
-        <USeparator label="or" />
+        <template v-if="importMode === 'image'">
+          <div class="flex flex-col gap-1">
+            <p class="text-sm font-medium text-highlighted">
+              Recipe photo or screenshot
+            </p>
+            <p class="text-xs text-dimmed">
+              Click to choose a file, or paste an image straight from your clipboard.
+            </p>
+          </div>
+          <RecipeImportImageUpload v-model="imageId" />
+        </template>
 
-        <div class="flex flex-col gap-2">
-          <p class="text-sm font-medium text-highlighted">
-            Import from a website
-          </p>
-          <p class="text-xs text-dimmed">
-            Paste a public recipe URL and we’ll read the page.
-          </p>
+        <template v-else-if="importMode === 'url'">
+          <div class="flex flex-col gap-1">
+            <p class="text-sm font-medium text-highlighted">
+              Recipe website
+            </p>
+            <p class="text-xs text-dimmed">
+              Use a public recipe page with an ingredients list and instructions.
+            </p>
+          </div>
           <UInput
             v-model="recipeUrl"
             :disabled="isImporting"
@@ -127,25 +145,25 @@ async function importRecipe() {
             type="url"
             placeholder="https://example.com/recipe"
           />
-        </div>
+        </template>
 
-        <USeparator label="or" />
-
-        <div class="flex flex-col gap-2">
-          <p class="text-sm font-medium text-highlighted">
-            Paste recipe text
-          </p>
-          <p class="text-xs text-dimmed">
-            Notes, an ingredient list, or the complete recipe.
-          </p>
+        <template v-else>
+          <div class="flex flex-col gap-1">
+            <p class="text-sm font-medium text-highlighted">
+              Recipe text
+            </p>
+            <p class="text-xs text-dimmed">
+              Paste notes, an ingredient list, or the full recipe.
+            </p>
+          </div>
           <UTextarea
             v-model="recipeText"
-            :rows="8"
+            :rows="9"
             :disabled="isImporting"
             class="w-full"
             placeholder="Paste the recipe here…"
           />
-        </div>
+        </template>
 
         <p
           v-if="importError"

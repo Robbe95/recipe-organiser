@@ -6,6 +6,7 @@ import { useQueryCache } from '@pinia/colada'
 import ConfirmDeleteModal from '~/components/ConfirmDeleteModal.vue'
 import PageHeader from '~/components/page/PageHeader.vue'
 import PageShell from '~/components/page/PageShell.vue'
+import { useDeleteRecipeMutation } from '~/features/recipes/api/deleteRecipe.mutation'
 import { useRecipesQuery } from '~/features/recipes/api/listRecipes.query'
 import {
   useArchiveRecipeMutation,
@@ -35,6 +36,7 @@ const archiveRecipeMutation = useArchiveRecipeMutation()
 const duplicateRecipeMutation = useDuplicateRecipeMutation()
 const setRecipeFavoriteMutation = useSetRecipeFavoriteMutation()
 const restoreRecipeMutation = useRestoreRecipeMutation()
+const deleteRecipeMutation = useDeleteRecipeMutation()
 const overlay = useOverlay()
 const confirmDeleteModal = overlay.create(ConfirmDeleteModal)
 const recipeImportModal = overlay.create(RecipeImportModal)
@@ -123,6 +125,22 @@ async function duplicateRecipe(recipe: { id: string }) {
 
 async function restoreRecipe(recipe: { id: string }) {
   await restoreRecipeMutation.mutateAsync({
+    id: recipe.id,
+  })
+}
+
+async function deleteRecipe(recipe: { id: string
+  name: string }) {
+  const confirmed = await confirmDeleteModal.open({
+    title: 'Delete recipe permanently?',
+    description: `${recipe.name}, its ingredients list, steps, and cooking history will be permanently removed. This cannot be undone.`,
+  })
+
+  if (!confirmed) {
+    return
+  }
+
+  await deleteRecipeMutation.mutateAsync({
     id: recipe.id,
   })
 }
@@ -255,6 +273,26 @@ function recipeOverflowItems(recipe: {
         label: 'Archive recipe',
         onSelect: () => archiveRecipe(recipe),
       },
+      {
+        color: 'error',
+        icon: 'i-lucide-trash-2',
+        label: 'Delete recipe',
+        onSelect: () => deleteRecipe(recipe),
+      },
+    ],
+  ]
+}
+
+function archivedRecipeOverflowItems(recipe: { id: string
+  name: string }): DropdownMenuItem[][] {
+  return [
+    [
+      {
+        color: 'error',
+        icon: 'i-lucide-trash-2',
+        label: 'Delete recipe',
+        onSelect: () => deleteRecipe(recipe),
+      },
     ],
   ]
 }
@@ -290,13 +328,6 @@ function selectedFirstOptions(items: string[], selected: string[], allLabel: str
     >
       <template #actions>
         <UButton
-          :label="showArchived ? 'Active recipes' : 'Archived recipes'"
-          icon="i-lucide-archive"
-          color="neutral"
-          variant="ghost"
-          @click="showArchived = !showArchived"
-        />
-        <UButton
           label="Import recipe"
           icon="i-lucide-sparkles"
           color="neutral"
@@ -308,6 +339,27 @@ function selectedFirstOptions(items: string[], selected: string[], allLabel: str
           icon="i-lucide-plus"
           to="/recipes/new"
         />
+        <UPopover>
+          <UButton
+            icon="i-lucide-ellipsis-vertical"
+            color="neutral"
+            variant="ghost"
+            aria-label="More recipe actions"
+          />
+          <template #content>
+            <div class="flex flex-col gap-1 p-1">
+              <UButton
+                :label="showArchived ? 'Active recipes' : 'Archived recipes'"
+                icon="i-lucide-archive"
+                color="neutral"
+                variant="ghost"
+                class="justify-start"
+                block
+                @click="showArchived = !showArchived"
+              />
+            </div>
+          </template>
+        </UPopover>
       </template>
       <template #primary-action>
         <UButton
@@ -544,6 +596,18 @@ function selectedFirstOptions(items: string[], selected: string[], allLabel: str
               aria-label="Restore recipe"
               @click="restoreRecipe(recipe)"
             />
+            <UDropdownMenu
+              v-if="showArchived"
+              :items="archivedRecipeOverflowItems(recipe)"
+            >
+              <UButton
+                icon="i-lucide-ellipsis-vertical"
+                color="neutral"
+                variant="ghost"
+                size="sm"
+                aria-label="More recipe actions"
+              />
+            </UDropdownMenu>
             <template v-else>
               <UButton
                 :to="`/recipes/${recipe.id}/edit`"
@@ -582,6 +646,18 @@ function selectedFirstOptions(items: string[], selected: string[], allLabel: str
               aria-label="Restore recipe"
               @click="restoreRecipe(recipe)"
             />
+            <UDropdownMenu
+              v-if="showArchived"
+              :items="archivedRecipeOverflowItems(recipe)"
+            >
+              <UButton
+                icon="i-lucide-ellipsis-vertical"
+                color="neutral"
+                variant="ghost"
+                size="sm"
+                aria-label="More recipe actions"
+              />
+            </UDropdownMenu>
             <template v-else>
               <UButton
                 :icon="recipe.isFavorite ? 'i-lucide-heart-off' : 'i-lucide-heart'"
@@ -600,22 +676,15 @@ function selectedFirstOptions(items: string[], selected: string[], allLabel: str
                 size="sm"
                 aria-label="Edit recipe"
               />
-              <UButton
-                icon="i-lucide-copy"
-                color="neutral"
-                variant="ghost"
-                size="sm"
-                aria-label="Duplicate recipe"
-                @click="duplicateRecipe(recipe)"
-              />
-              <UButton
-                icon="i-lucide-archive"
-                color="neutral"
-                variant="ghost"
-                size="sm"
-                aria-label="Archive recipe"
-                @click="archiveRecipe(recipe)"
-              />
+              <UDropdownMenu :items="recipeOverflowItems(recipe)">
+                <UButton
+                  icon="i-lucide-ellipsis-vertical"
+                  color="neutral"
+                  variant="ghost"
+                  size="sm"
+                  aria-label="More recipe actions"
+                />
+              </UDropdownMenu>
             </template>
           </div>
         </article>

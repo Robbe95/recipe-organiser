@@ -56,6 +56,7 @@ const recipe = reactive<RecipeForm>({
   tags: [] as string[],
 })
 const ingredients = ref<IngredientRow[]>([])
+const ingredientSections = ref<string[]>([])
 const steps = ref<StepRow[]>([
   newStepRow(),
 ])
@@ -122,6 +123,7 @@ watch([
       calorieAmount: undefined,
       calories: undefined,
       calorieUnit: undefined,
+      groupName: item.groupName || '',
       note: item.note || '',
       unit: item.unit || '',
     }
@@ -130,6 +132,15 @@ watch([
 
     return row
   })
+  ingredientSections.value = savedRecipe.ingredientSections?.length
+    ? savedRecipe.ingredientSections
+    : [
+        ...new Set(savedRecipe.ingredients.flatMap((item) => item.groupName
+          ? [
+              item.groupName,
+            ]
+          : [])),
+      ]
   steps.value = savedRecipe.steps.map((step) => ({
     clientId: crypto.randomUUID(),
     durationMinutes: step.durationSeconds ? step.durationSeconds / 60 : undefined,
@@ -168,6 +179,7 @@ function newIngredientRow(): IngredientRow {
     calorieAmount: undefined,
     calories: undefined,
     calorieUnit: undefined,
+    groupName: '',
     note: '',
     unit: '',
   }
@@ -356,9 +368,11 @@ async function saveRecipe() {
         ingredientId: item.ingredientId!,
         isOptional: item.isOptional,
         amount: item.amount ?? null,
+        groupName: item.groupName || null,
         note: item.note || null,
         unit: item.unit || null,
       })),
+      ingredientSections: ingredientSections.value,
       notes: recipe.notes || null,
       prepTimeMinutes: recipe.prepTimeMinutes ?? null,
       sourceName: recipe.sourceName || null,
@@ -428,6 +442,7 @@ async function saveRecipe() {
     <RecipeIngredientsForm
       v-else-if="activeTab === 'ingredients'"
       v-model:ingredients="ingredients"
+      v-model:sections="ingredientSections"
       :ingredient-options="ingredientOptions"
       :ingredient-types="ingredientTypes"
       @quick-add="quickAddIngredient"
