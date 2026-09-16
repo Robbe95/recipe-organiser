@@ -1,4 +1,16 @@
 {
   "buildCommand": "pnpm vercel-build",
-  "regions": ["cdg1"]
+  "regions": ["cdg1"],
+  "rewrites": [
+    {
+      "destination": "/kitchen/:path*",
+      "has": [
+        {
+          "type": "host",
+          "value": "kitchen.robbevaes.com"
+        }
+      ],
+      "source": "/:path*"
+    }
+  ]
 }

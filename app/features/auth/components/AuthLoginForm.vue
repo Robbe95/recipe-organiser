@@ -27,6 +27,8 @@ const isLoading = ref(false)
 const errorMessage = ref('')
 const signInMutation = useSignInMutation()
 const runtimeConfig = useRuntimeConfig()
+const requestUrl = useRequestURL()
+
 const localTestCredentials = import.meta.dev
   ? {
       email: runtimeConfig.public.localLoginEmail,
@@ -63,7 +65,10 @@ async function signIn(data: v.InferOutput<typeof schema>) {
       = 'We could not sign you in. Check your email and password and try again.'
   }
   else {
-    await navigateTo('/dashboard')
+    const isKitchenDomain = requestUrl.hostname.startsWith('kitchen.')
+    const targetPath = isKitchenDomain ? '/kitchen' : '/dashboard'
+
+    await navigateTo(targetPath)
   }
 }
 </script>
