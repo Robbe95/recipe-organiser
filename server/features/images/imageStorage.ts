@@ -30,11 +30,11 @@ export async function readObject(key: string): Promise<Buffer> {
   return Buffer.from(await new Response(object.stream).arrayBuffer())
 }
 
-export async function writeWebp(input: {
+export function writeWebp(input: {
   body: Buffer
   key: string
 }) {
-  await put(input.key, input.body, {
+  return put(input.key, input.body, {
     access: 'public',
     cacheControlMaxAge: 60 * 60 * 24 * 365,
     contentType: 'image/webp',

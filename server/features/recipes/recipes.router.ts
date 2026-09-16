@@ -191,6 +191,32 @@ function ingredientKey(name: string, unit: string | null) {
   return `${name.toLocaleLowerCase().replaceAll(/[^a-z0-9]+/g, '')}:${unit || ''}`
 }
 
+type ImageVariantName = 'desktop' | 'full' | 'mobile' | 'tablet' | 'thumbnail'
+
+async function resolveImageVariantUrl(image: {
+  id: string
+  variantKeys: Record<ImageVariantName, string>
+  variantUrls: Partial<Record<ImageVariantName, string>> | null
+}, variant: ImageVariantName) {
+  const storedUrl = image.variantUrls?.[variant]
+
+  if (storedUrl) {
+    return storedUrl
+  }
+
+  const url = await createReadUrl(image.variantKeys[variant])
+  const variantUrls = {
+    ...image.variantUrls,
+    [variant]: url,
+  }
+
+  await db.update(imageAsset).set({
+    variantUrls,
+  }).where(eq(imageAsset.id, image.id))
+
+  return url
+}
+
 function normalizedImportedIngredients(items: ImportedRecipe['ingredients']) {
   const splitItems = items.flatMap((item) => {
     const alternatives = item.name.split(/\s+or\s+/i).map((name) => name.trim()).filter(Boolean)
@@ -1013,7 +1039,7 @@ const listRecipes = protectedProcedure.input(v.object({
       image: image
         ? {
             id: image.id,
-            url: await createReadUrl(image.variantKeys.desktop),
+            url: await resolveImageVariantUrl(image, 'desktop'),
           }
         : null,
       ingredients: ingredientNamesByRecipeId.get(savedRecipe.id) || [],
@@ -1130,7 +1156,7 @@ const getRecipeForCooking = protectedProcedure.input(v.object({
     ...savedRecipe,
     image: image
       ? {
-          url: await createReadUrl(image.variantKeys.desktop),
+          url: await resolveImageVariantUrl(image, 'desktop'),
         }
       : null,
     ingredients: recipeIngredients.flatMap((item) => {
@@ -1815,7 +1841,7 @@ const getRecipeImport = protectedProcedure.input(v.object({
 
   return {
     ...job,
-    sourceImageUrl: sourceImage ? await createReadUrl(sourceImage.variantKeys.full).catch(() => null) : null,
+    sourceImageUrl: sourceImage ? await resolveImageVariantUrl(sourceImage, 'full').catch(() => null) : null,
   }
 })
 

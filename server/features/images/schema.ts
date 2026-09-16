@@ -35,5 +35,12 @@ export const imageAsset = recipesSchema.table('image_asset', {
     tablet: string
     thumbnail: string
   }>().notNull(),
+  variantUrls: jsonb('variant_urls').$type<Partial<{
+    desktop: string
+    full: string
+    mobile: string
+    tablet: string
+    thumbnail: string
+  }>>(),
   width: integer('width').notNull(),
 })

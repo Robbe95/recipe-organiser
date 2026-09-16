@@ -63,6 +63,38 @@ function assertOwnTemporaryKey(userId: string, imageId: string, sourceKey: strin
   }
 }
 
+async function resolveVariantUrls(image: {
+  id: string
+  variantKeys: Record<'desktop' | 'full' | 'mobile' | 'tablet' | 'thumbnail', string>
+  variantUrls: Partial<Record<'desktop' | 'full' | 'mobile' | 'tablet' | 'thumbnail', string>> | null
+}) {
+  if (
+    image.variantUrls?.desktop
+    && image.variantUrls.full
+    && image.variantUrls.mobile
+    && image.variantUrls.tablet
+    && image.variantUrls.thumbnail
+  ) {
+    return image.variantUrls
+  }
+
+  const variantUrls = Object.fromEntries(await Promise.all(
+    Object.entries(image.variantKeys).map(async ([
+      name,
+      key,
+    ]) => [
+      name,
+      await createReadUrl(key),
+    ]),
+  )) as Record<'desktop' | 'full' | 'mobile' | 'tablet' | 'thumbnail', string>
+
+  await db.update(imageAsset).set({
+    variantUrls,
+  }).where(eq(imageAsset.id, image.id))
+
+  return variantUrls
+}
+
 const createUpload = protectedProcedure
   .input(uploadInputSchema)
   .handler(async ({
@@ -109,6 +141,7 @@ const completeUpload = protectedProcedure
         height: processed.height,
         sourceKey: input.sourceKey,
         variantKeys: processed.keys,
+        variantUrls: processed.urls,
         width: processed.width,
       }).returning()
 
@@ -142,15 +175,7 @@ const listImages = protectedProcedure
 
     return Promise.all(images.map(async (image) => ({
       ...image,
-      urls: Object.fromEntries(await Promise.all(
-        Object.entries(image.variantKeys).map(async ([
-          name,
-          key,
-        ]) => [
-          name,
-          await createReadUrl(key),
-        ]),
-      )),
+      urls: await resolveVariantUrls(image),
     })))
   })
 

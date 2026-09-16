@@ -71,6 +71,7 @@ export async function processImage(input: {
     },
   ][]
   const keys = {} as Record<ImageVariant, string>
+  const urls = {} as Record<ImageVariant, string>
 
   await Promise.all(variants.map(async ([
     name,
@@ -89,16 +90,18 @@ export async function processImage(input: {
       })
       .toBuffer()
 
-    await writeWebp({
+    const blob = await writeWebp({
       body,
       key,
     })
+
     keys[name] = key
+    urls[name] = blob.url
   }))
 
   const fullKey = `${input.keyPrefix}/full.webp`
 
-  await writeWebp({
+  const fullBlob = await writeWebp({
     body: await source
       .clone()
       .resize({
@@ -113,11 +116,14 @@ export async function processImage(input: {
       .toBuffer(),
     key: fullKey,
   })
+
   keys.full = fullKey
+  urls.full = fullBlob.url
 
   return {
     height: crop.height,
     keys,
+    urls,
     width: crop.width,
   }
 }

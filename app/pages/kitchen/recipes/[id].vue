@@ -722,7 +722,12 @@ onBeforeUnmount(() => {
                     last:border-b-0
                   "
                 >
-                  <div class="flex items-center justify-between gap-4">
+                  <div
+                    class="
+                      flex flex-col gap-3
+                      sm:flex-row sm:items-center sm:justify-between sm:gap-4
+                    "
+                  >
                     <div class="flex min-w-0 items-center gap-3">
                       <span class="size-2 shrink-0 rounded-full bg-primary" />
                       <span
@@ -735,7 +740,12 @@ onBeforeUnmount(() => {
                         class="text-xs text-toned"
                       >optional</span>
                     </div>
-                    <div class="flex shrink-0 items-center gap-2">
+                    <div
+                      class="
+                        flex flex-wrap items-center gap-2
+                        sm:shrink-0 sm:flex-nowrap
+                      "
+                    >
                       <span class="font-medium text-highlighted">{{ formatAmount(scaledAmount(ingredient.amount), ingredient.unit) }}</span>
                       <USelectMenu
                         v-if="ingredient.variants.length > 1"
@@ -743,7 +753,10 @@ onBeforeUnmount(() => {
                         :items="ingredient.variants"
                         value-key="id"
                         label-key="name"
-                        class="w-52"
+                        class="
+                          w-full
+                          sm:w-52
+                        "
                       />
                       <div
                         v-if="ingredient.requiresWeight"

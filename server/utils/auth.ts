@@ -21,7 +21,12 @@ export const auth = betterAuth({
     },
     useSecureCookies: process.env.NODE_ENV === 'production',
   },
-  baseURL: process.env.BETTER_AUTH_URL,
+  baseURL: {
+    allowedHosts: [
+      '*.robbevaes.com',
+    ],
+
+  },
   database: drizzleAdapter(db, {
     camelCase: true,
     provider: 'pg',

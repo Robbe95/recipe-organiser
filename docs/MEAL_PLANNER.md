@@ -317,3 +317,9 @@ excellent.
   explicit examples (salt, pepper, dried herbs, oil, vinegar, sugar, flour),
   and newly imported ingredient records retain that choice so pantry staples
   begin unticked in meal-plan shopping review.
+- Shopping-list grocery groups can now be collapsed from their headers in both
+  Kitchen and the dashboard. Their item counts remain visible, and the content
+  opens and closes with a height animation for quicker in-store scanning.
+- Fixed narrow-phone Kitchen ingredient rows: ingredient names now take their
+  own line and amount, variant, live-weight, and add-variant controls wrap
+  cleanly below instead of overlapping or compressing each other.

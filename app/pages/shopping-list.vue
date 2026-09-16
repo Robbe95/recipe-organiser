@@ -35,6 +35,7 @@ const shoppingList = computed(() => localShoppingList.value || shoppingListQuery
 const activeItems = computed(() => shoppingList.value.filter((item) => !item.completedAt))
 const completedItems = computed(() => shoppingList.value.filter((item) => item.completedAt))
 const activeGroups = computed(() => groupItems(activeItems.value))
+const collapsedGroups = useState<string[]>('shopping-list-collapsed-groups', () => [])
 const editingItem = ref<{
   id: string
   name: string
@@ -105,6 +106,19 @@ function updateItem(updatedItem: NonNullable<typeof editingItem.value>) {
         ...updatedItem,
       }
     : item)
+}
+
+function isGroupCollapsed(groupName: string) {
+  return collapsedGroups.value.includes(groupName)
+}
+
+function toggleGroup(groupName: string) {
+  collapsedGroups.value = isGroupCollapsed(groupName)
+    ? collapsedGroups.value.filter((name) => name !== groupName)
+    : [
+        ...collapsedGroups.value,
+        groupName,
+      ]
 }
 
 function groupItems(items: ShoppingListItem[]) {
@@ -212,39 +226,55 @@ function groupItems(items: ShoppingListItem[]) {
           :key="group.name"
           class="flex flex-col gap-2"
         >
-          <h3
+          <button
+            :aria-expanded="!isGroupCollapsed(group.name)"
             class="
-              px-1 text-xs font-semibold tracking-wide text-muted uppercase
+              flex w-full items-center justify-between gap-3 rounded-lg p-1
+              text-left text-xs font-semibold tracking-wide text-muted uppercase
+              hover:bg-elevated/70
             "
+            type="button"
+            @click="toggleGroup(group.name)"
           >
-            {{ group.name }}
-          </h3>
-          <UPageCard
-            v-for="item in group.items"
-            :key="item.id"
-            class="cursor-pointer"
-            @click="setComplete(item.id, true)"
-          >
-            <div class="flex items-center gap-3">
-              <UIcon
-                name="i-lucide-circle"
-                class="size-5 text-muted"
-              />
-              <span class="flex-1 font-medium text-highlighted">{{ item.name }}</span>
-              <span
-                v-if="item.amount !== null"
-                class="text-sm text-muted"
-              >{{ item.amount }} {{ item.unit }}</span>
-              <UButton
-                aria-label="Edit shopping item"
-                color="neutral"
-                icon="i-lucide-pencil"
-                size="sm"
-                variant="ghost"
-                @click.stop="editItem(item)"
-              />
+            <span>{{ group.name }} · {{ group.items.length }}</span>
+            <UIcon
+              :name="isGroupCollapsed(group.name) ? 'i-lucide-chevron-right' : 'i-lucide-chevron-down'"
+              class="size-4 shrink-0"
+            />
+          </button>
+          <AnimateHeight>
+            <div
+              v-if="!isGroupCollapsed(group.name)"
+              class="flex flex-col gap-2"
+            >
+              <UPageCard
+                v-for="item in group.items"
+                :key="item.id"
+                class="cursor-pointer"
+                @click="setComplete(item.id, true)"
+              >
+                <div class="flex items-center gap-3">
+                  <UIcon
+                    name="i-lucide-circle"
+                    class="size-5 text-muted"
+                  />
+                  <span class="flex-1 font-medium text-highlighted">{{ item.name }}</span>
+                  <span
+                    v-if="item.amount !== null"
+                    class="text-sm text-muted"
+                  >{{ item.amount }} {{ item.unit }}</span>
+                  <UButton
+                    aria-label="Edit shopping item"
+                    color="neutral"
+                    icon="i-lucide-pencil"
+                    size="sm"
+                    variant="ghost"
+                    @click.stop="editItem(item)"
+                  />
+                </div>
+              </UPageCard>
             </div>
-          </UPageCard>
+          </AnimateHeight>
         </div>
       </section>
       <section class="flex flex-col gap-3">

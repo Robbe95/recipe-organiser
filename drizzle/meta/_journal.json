@@ -57,6 +57,13 @@
       "when": 1789583482868,
       "tag": "0007_misty_butterfly",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1789588186684,
+      "tag": "0008_dusty_kinsey_walden",
+      "breakpoints": true
     }
   ]
 }

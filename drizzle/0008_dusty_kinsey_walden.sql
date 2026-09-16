@@ -1,0 +1,1 @@
+ALTER TABLE "recipes"."image_asset" ADD COLUMN "variant_urls" jsonb;
