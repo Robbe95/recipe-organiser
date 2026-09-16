@@ -4,6 +4,36 @@ import lucide from '@iconify-json/lucide/icons.json'
 export default defineNuxtConfig({
 
   compatibilityDate: '2026-06-30',
+
+  app: {
+    head: {
+      link: [
+        {
+          href: '/manifest.webmanifest',
+          rel: 'manifest',
+        },
+        {
+          href: '/kitchen-icon.svg',
+          rel: 'apple-touch-icon',
+        },
+      ],
+      meta: [
+        {
+          name: 'theme-color',
+          content: '#ffffff',
+        },
+        {
+          name: 'apple-mobile-web-app-capable',
+          content: 'yes',
+        },
+        {
+          name: 'apple-mobile-web-app-status-bar-style',
+          content: 'default',
+        },
+      ],
+    },
+    viewTransition: false,
+  },
   css: [
     '~/assets/css/main.css',
   ],
@@ -16,6 +46,9 @@ export default defineNuxtConfig({
       autoInit: false,
       standalone: false,
     },
+  },
+  experimental: {
+    viewTransition: true,
   },
   icon: {
     clientBundle: {
@@ -42,6 +75,12 @@ export default defineNuxtConfig({
         'X-Content-Type-Options': 'nosniff',
         'X-Frame-Options': 'DENY',
       },
+    },
+  },
+  runtimeConfig: {
+    public: {
+      localLoginEmail: process.env.NODE_ENV === 'development' ? process.env.LOCAL_LOGIN_EMAIL || '' : '',
+      localLoginPassword: process.env.NODE_ENV === 'development' ? process.env.LOCAL_LOGIN_PASSWORD || '' : '',
     },
   },
 

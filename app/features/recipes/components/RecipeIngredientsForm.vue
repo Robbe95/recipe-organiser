@@ -110,7 +110,7 @@ function addSection() {
   }
 
   sections.value = [
-    ...sections.value,
+    ...normalizedSections.value,
     name,
   ]
 }
@@ -165,7 +165,7 @@ function syncOrder() {
         color="neutral"
         variant="soft"
         type="button"
-        @click.prevent="addSection"
+        @click="addSection"
       />
     </div>
     <RecipeIngredientQuickAdd
@@ -173,8 +173,8 @@ function syncOrder() {
       @add="emit('quickAdd', $event)"
     />
     <section
-      v-for="(section, sectionIndex) in sectionGroups"
-      :key="section.isDefault ? 'default' : sectionIndex"
+      v-for="section in sectionGroups"
+      :key="section.id"
       class="flex flex-col gap-4 rounded-xl border border-default p-4"
     >
       <div class="flex items-center justify-between gap-3">

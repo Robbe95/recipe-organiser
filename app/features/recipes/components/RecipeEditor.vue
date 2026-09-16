@@ -16,6 +16,8 @@ import RecipeIngredientDetailsModal from '~/features/recipes/components/RecipeIn
 import RecipeIngredientsForm from '~/features/recipes/components/RecipeIngredientsForm.vue'
 import RecipeStepsForm from '~/features/recipes/components/RecipeStepsForm.vue'
 
+import { formatRecipeInstruction } from '../../../../shared/utils/recipeInstructions'
+
 const props = defineProps<{
   recipeId?: string
 }>()
@@ -144,7 +146,7 @@ watch([
   steps.value = savedRecipe.steps.map((step) => ({
     clientId: crypto.randomUUID(),
     durationMinutes: step.durationSeconds ? step.durationSeconds / 60 : undefined,
-    instruction: step.instruction,
+    instruction: formatRecipeInstruction(step.instruction),
     type: step.type,
   }))
   recipeLoaded = true
@@ -855,8 +857,10 @@ async function saveRecipe() {
                 class="w-full"
                 value-key="value"
               />
-              <UInput
+              <UTextarea
                 v-model="step.instruction"
+                :rows="2"
+                autoresize
                 :placeholder="step.type === 'group' ? 'e.g. Prepare the vegetables' : 'What needs to happen?'"
               />
               <UInput

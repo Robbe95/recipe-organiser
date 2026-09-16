@@ -4,7 +4,9 @@ const props = defineProps<{
   editing: boolean
   initialForm: {
     typeId: string
+    isPantryStaple: boolean
     name: string
+    aliases: string[]
     defaultUnit: string
     requiresWeight: boolean
     variants: Array<{
@@ -25,7 +27,9 @@ const props = defineProps<{
 const emit = defineEmits<{
   close: [form?: {
     typeId: string
+    isPantryStaple: boolean
     name: string
+    aliases: string[]
     defaultUnit: string
     requiresWeight: boolean
     variants: Array<{
@@ -40,7 +44,9 @@ const emit = defineEmits<{
 
 interface IngredientForm {
   typeId: string
+  isPantryStaple: boolean
   name: string
+  aliases: string[]
   defaultUnit: string
   requiresWeight: boolean
   variants: Array<{
@@ -55,6 +61,9 @@ interface IngredientForm {
 function copyForm(value: IngredientForm): IngredientForm {
   return {
     ...value,
+    aliases: [
+      ...value.aliases,
+    ],
     variants: value.variants.map((variant) => ({
       ...variant,
     })),
@@ -128,6 +137,16 @@ function setDefault(index: number) {
             class="w-full"
           />
         </UFormField>
+        <UFormField
+          label="Aliases"
+          description="Other names for this ingredient, such as green onion or scallion. Press Enter after each name."
+        >
+          <UInputTags
+            v-model="form.aliases"
+            placeholder="Add an alias…"
+            class="w-full"
+          />
+        </UFormField>
         <UFormField label="Ingredient type">
           <USelectMenu
             v-model="form.typeId"
@@ -150,6 +169,11 @@ function setDefault(index: number) {
           v-model="form.requiresWeight"
           label="Weight required when cooking"
           description="Ask for the actual weight when starting a recipe."
+        />
+        <UCheckbox
+          v-model="form.isPantryStaple"
+          label="Generally in the pantry"
+          description="Leave it off a meal-plan shopping list by default."
         />
         <div class="flex flex-col gap-3">
           <div class="flex items-center justify-between gap-3">

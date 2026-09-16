@@ -25,6 +25,11 @@ useSeoMeta({
 
 <template>
   <UApp>
+    <NuxtLoadingIndicator
+      :height="2"
+      :throttle="180"
+      color="#06b6d4"
+    />
     <NuxtLayout>
       <NuxtPage />
     </NuxtLayout>

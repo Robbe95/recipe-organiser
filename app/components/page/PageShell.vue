@@ -1,9 +1,10 @@
 <script setup lang="ts">
+/* eslint-disable better-tailwindcss/no-unknown-classes */
 </script>
 
 <template>
   <section
-    class="mx-auto flex w-full flex-col gap-8"
+    class="page-surface mx-auto flex w-full flex-col gap-8"
   >
     <slot />
   </section>

@@ -16,3 +16,138 @@
   --color-green-900: #0a5331;
   --color-green-950: #052e16;
 }
+
+@layer components {
+  .app-surface {
+    background-image:
+      radial-gradient(circle at 8% 0%, color-mix(in srgb, var(--color-cyan-500) 8%, transparent), transparent 32rem),
+      radial-gradient(circle at 95% 92%, color-mix(in srgb, var(--color-green-500) 6%, transparent), transparent 36rem);
+  }
+
+  .dashboard-glass {
+    border-color: color-mix(in srgb, var(--ui-border, rgb(128 128 128)) 75%, white 25%);
+    background: color-mix(in srgb, var(--ui-bg-elevated, rgb(255 255 255)) 78%, transparent);
+    box-shadow: inset 0 1px rgb(255 255 255 / 9%);
+    backdrop-filter: blur(24px) saturate(145%);
+  }
+
+  .page-surface {
+    animation: surface-enter 380ms ease-out both;
+  }
+
+  .kitchen-surface {
+    background-image:
+      radial-gradient(circle at 12% -10%, color-mix(in srgb, var(--color-cyan-500) 11%, transparent), transparent 30rem),
+      radial-gradient(circle at 85% 110%, color-mix(in srgb, var(--color-green-500) 8%, transparent), transparent 36rem);
+  }
+
+  .kitchen-dock {
+    border-color: color-mix(in srgb, var(--ui-border) 78%, white 22%);
+    background: color-mix(in srgb, var(--ui-bg-elevated) 76%, transparent);
+    box-shadow: 0 18px 55px rgb(0 0 0 / 18%), inset 0 1px rgb(255 255 255 / 10%);
+    backdrop-filter: blur(28px) saturate(160%);
+  }
+
+  .kitchen-dock-active {
+    background: color-mix(in srgb, var(--ui-bg) 80%, transparent);
+    box-shadow: inset 0 1px rgb(255 255 255 / 12%), 0 8px 20px rgb(0 0 0 / 13%);
+  }
+
+  @keyframes surface-enter {
+    from {
+      opacity: 0;
+      transform: translateY(5px);
+    }
+
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .page-surface {
+      animation: none;
+    }
+  }
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  ::view-transition-old(root) {
+    animation: kitchen-view-out 160ms cubic-bezier(0.4, 0, 1, 1) both;
+  }
+
+  ::view-transition-new(root) {
+    animation: kitchen-view-in 220ms cubic-bezier(0.22, 1, 0.36, 1) both;
+  }
+
+  @keyframes kitchen-view-out {
+    to {
+      opacity: 0;
+      transform: translateY(-4px) scale(0.995);
+    }
+  }
+
+  @keyframes kitchen-view-in {
+    from {
+      opacity: 0;
+      transform: translateY(7px) scale(1.004);
+    }
+  }
+}
+
+@layer components {
+  .kitchen-skeleton {
+    background: linear-gradient(
+      105deg,
+      color-mix(in srgb, var(--ui-bg-accented) 76%, transparent) 20%,
+      color-mix(in srgb, var(--ui-bg-elevated) 92%, white 8%) 40%,
+      color-mix(in srgb, var(--ui-bg-accented) 76%, transparent) 60%
+    );
+    background-size: 240% 100%;
+    animation: kitchen-shimmer 1.8s ease-in-out infinite;
+  }
+
+  .kitchen-loading-mark {
+    position: relative;
+    overflow: visible;
+  }
+
+  .kitchen-loading-steam {
+    position: absolute;
+    top: -0.2rem;
+    width: 2px;
+    height: 0.45rem;
+    border-radius: 999px;
+    background: currentcolor;
+    opacity: 0;
+    animation: kitchen-steam 1.65s ease-in-out infinite;
+  }
+
+  .kitchen-loading-steam-one {
+    left: 0.85rem;
+  }
+
+  .kitchen-loading-steam-two {
+    right: 0.85rem;
+    animation-delay: 0.42s;
+  }
+
+  @keyframes kitchen-shimmer {
+    from { background-position: 100% 0; }
+    to { background-position: -140% 0; }
+  }
+
+  @keyframes kitchen-steam {
+    0%, 100% { opacity: 0; transform: translateY(0) scaleY(0.7); }
+    45% { opacity: 0.7; }
+    75% { opacity: 0; transform: translateY(-0.38rem) scaleY(1); }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .kitchen-skeleton,
+    .kitchen-loading-steam {
+      animation: none;
+    }
+  }
+}

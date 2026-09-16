@@ -1,15 +1,13 @@
 <script setup lang="ts">
-/* eslint-disable @intlify/vue-i18n/no-raw-text */
+/* eslint-disable better-tailwindcss/no-unknown-classes */
 import type { DropdownMenuItem } from '@nuxt/ui'
-import { useMediaQuery } from '@vueuse/core'
 
 import { useSignOutMutation } from '~/features/auth/api/signOut.mutation'
 import KitchenSettingsModal from '~/features/settings/components/KitchenSettingsModal.vue'
 import { authClient } from '~/lib/authClient'
 
-const open = ref(true)
 const route = useRoute()
-const isMobile = useMediaQuery('(max-width: 1023px)')
+const fullScreen = computed(() => route.meta.fullScreen === true)
 const signOutMutation = useSignOutMutation()
 const session = authClient.useSession()
 const overlay = useOverlay()
@@ -35,16 +33,19 @@ const navigation = [
     to: '/ingredients',
   },
   {
-    icon: 'i-lucide-history',
-    label: 'Cooking history',
-    to: '/history',
+    icon: 'i-lucide-calendar-heart',
+    label: 'Meal plan',
+    to: '/meal-plan',
   },
   {
-    disabled: true,
-    icon: 'i-lucide-calendar-heart',
-    label: 'Meal plans',
+    icon: 'i-lucide-shopping-basket',
+    label: 'Shopping list',
+    to: '/shopping-list',
   },
 ]
+const collapsedNavigationUi = {
+  link: 'mx-auto size-10 justify-center p-0 before:inset-0',
+}
 
 const userItems = computed<DropdownMenuItem[][]>(() => [
   [
@@ -52,6 +53,16 @@ const userItems = computed<DropdownMenuItem[][]>(() => [
       icon: 'i-lucide-settings-2',
       label: 'Kitchen settings',
       onSelect: openKitchenSettings,
+    },
+    {
+      icon: 'i-lucide-inbox',
+      label: 'Pending imports',
+      to: '/recipes/imports',
+    },
+    {
+      icon: 'i-lucide-history',
+      label: 'Cooking history',
+      to: '/history',
     },
   ],
   [
@@ -71,125 +82,116 @@ async function signOut() {
   await signOutMutation.mutateAsync()
   await navigateTo('/')
 }
-
-watch(() => route.fullPath, () => {
-  if (isMobile.value) {
-    open.value = false
-  }
-})
 </script>
 
 <template>
-  <div class="flex min-h-dvh bg-muted/30">
-    <USidebar
-      v-model:open="open"
-      :ui="{ inner: 'border-r border-default bg-default' }"
-      collapsible="icon"
-      rail
+  <UDashboardGroup
+    storage-key="recipe-dashboard"
+    unit="rem"
+    class="app-surface bg-muted/20"
+  >
+    <UDashboardSidebar
+      id="navigation"
+      :default-size="16"
+      :min-size="14"
+      :max-size="20"
+      :collapsed-size="4"
+      :ui="{ header: 'px-2',
+             body: 'px-2',
+             footer: 'px-2 border-t border-default' }"
+      class="
+        dashboard-glass border-r bg-default/70 transition-[width] duration-200
+        ease-in-out
+        motion-reduce:transition-none
+      "
+      collapsible
     >
-      <template #header="{ close }">
-        <div class="flex w-full items-center justify-between gap-2">
-          <NuxtLink
-            to="/dashboard"
-            class="
-              flex items-center gap-3 text-sm font-bold tracking-tight
-              text-highlighted
-            "
-          >
-            <span
-              class="
-                grid size-9 place-items-center rounded-xl bg-primary
-                text-inverted shadow-sm
-              "
-            >
-              <UIcon
-                name="i-lucide-chef-hat"
-                class="size-5"
-              />
-            </span>
-            <span class="whitespace-nowrap">Recipe Organiser</span>
-          </NuxtLink>
-          <UButton
-            class="lg:hidden"
-            color="neutral"
-            variant="ghost"
-            icon="i-lucide-x"
-            aria-label="Close navigation"
-            @click="close"
-          />
-        </div>
+      <template #header="{ collapsed }">
+        <UButton
+          :label="collapsed ? undefined : 'Recipe Organiser'"
+          :square="collapsed"
+          :ui="{ leadingIcon: 'text-primary',
+                 label: 'truncate' }"
+          :class="collapsed ? 'mx-auto font-semibold whitespace-nowrap' : `
+            w-full font-semibold whitespace-nowrap
+          `"
+          to="/dashboard"
+          icon="i-lucide-chef-hat"
+          aria-label="Recipe Organiser home"
+          color="neutral"
+          variant="ghost"
+        />
       </template>
-
-      <template #default>
-        <div class="flex h-full flex-col justify-between gap-5">
-          <UNavigationMenu
-            :items="navigation"
-            :ui="{ link: 'rounded-xl px-3 py-2.5' }"
-            orientation="vertical"
-          />
-          <UButton
-            to="/kitchen"
-            class="flex justify-between"
-            trailing-icon="i-lucide-arrow-right"
-          >
-            <div class="flex items-center gap-2">
-              <UIcon name="i-lucide-chef-hat" />
-              Kitchen mode
-            </div>
-          </UButton>
-        </div>
+      <template #default="{ collapsed }">
+        <UNavigationMenu
+          :items="navigation"
+          :collapsed="collapsed"
+          :ui="collapsed ? collapsedNavigationUi : undefined"
+          orientation="vertical"
+          tooltip
+          popover
+        />
+        <UNavigationMenu
+          :items="[{ label: 'Kitchen mode',
+                     icon: 'i-lucide-chef-hat',
+                     to: '/kitchen' }]"
+          :collapsed="collapsed"
+          :ui="collapsed ? collapsedNavigationUi : undefined"
+          orientation="vertical"
+          class="mt-auto"
+          tooltip
+        />
       </template>
-
-      <template #footer>
+      <template #footer="{ collapsed }">
         <UDropdownMenu
           :items="userItems"
-          :ui="{ content: 'w-(--reka-dropdown-menu-trigger-width)' }"
+          :content="{ side: collapsed ? 'right' : 'top',
+                      align: 'end' }"
+          :ui="{ content: 'w-56' }"
         >
           <UButton
-            :label="user.name"
+            :label="collapsed ? undefined : user.name"
+            :aria-label="`${user.name} account menu`"
+            :trailing-icon="collapsed ? undefined : 'i-lucide-chevrons-up-down'"
+            :square="collapsed"
+            :ui="{ label: 'truncate',
+                   trailingIcon: 'ml-auto' }"
+            :class="collapsed ? 'mx-auto whitespace-nowrap' : `
+              w-full whitespace-nowrap
+            `"
+            icon="i-lucide-circle-user-round"
             color="neutral"
             variant="ghost"
-            trailing-icon="i-lucide-chevrons-up-down"
-            class="flex w-full justify-between"
           />
         </UDropdownMenu>
       </template>
-    </USidebar>
-
-    <div class="flex min-w-0 flex-1 flex-col">
-      <header
-        class="
-          flex h-(--ui-header-height) items-center border-b border-default
-          bg-default px-4
-          sm:px-6
-        "
-      >
-        <UButton
-          class="lg:hidden"
-          color="neutral"
-          variant="ghost"
-          icon="i-lucide-menu"
-          aria-label="Open navigation"
-          @click="() => { open = true }"
-        />
-        <div
-          id="dashboard-page-breadcrumbs"
-          class="ml-2 min-w-0"
-        />
-        <div
-          id="dashboard-page-actions"
-          class="ml-auto flex items-center gap-2"
-        />
-      </header>
-      <main
-        class="
-          flex-1 p-4
-          sm:p-6
-          lg:p-8
-        "
-      >
+    </UDashboardSidebar>
+    <UDashboardPanel
+      id="content"
+      :ui="{ body: fullScreen ? 'min-h-0 gap-0 overflow-hidden p-0 sm:p-0 sm:gap-0' : 'min-h-0 lg:p-8' }"
+    >
+      <template #header>
+        <UDashboardNavbar class="dashboard-glass border-b bg-default/65">
+          <template #leading>
+            <UDashboardSidebarCollapse />
+          </template>
+          <template #title>
+            <div
+              id="dashboard-page-breadcrumbs"
+              class="min-w-0"
+            />
+          </template>
+          <template #right>
+            <div
+              id="dashboard-page-actions"
+              class="flex items-center gap-2"
+            />
+          </template>
+        </UDashboardNavbar>
+      </template>
+      <template #body>
         <slot />
-      </main>
-    </div>
-  </div>
+      </template>
+    </UDashboardPanel>
+  </UDashboardGroup>
 </template>

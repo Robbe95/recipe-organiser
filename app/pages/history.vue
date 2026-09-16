@@ -50,16 +50,10 @@ async function removeEntry(entry: {
       description="A record of the recipes you’ve made and the notes you left for next time."
     />
 
-    <div
+    <KitchenLoading
       v-if="historyQuery.isPending.value"
-      class="flex flex-col gap-3"
-    >
-      <USkeleton
-        v-for="index in 3"
-        :key="index"
-        class="h-28 rounded-2xl"
-      />
-    </div>
+      label="Opening your cooking history"
+    />
     <UEmpty
       v-else-if="history.length === 0"
       icon="i-lucide-history"

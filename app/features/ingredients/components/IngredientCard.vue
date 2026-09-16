@@ -6,7 +6,9 @@ const props = defineProps<{
   ingredient: {
     id: string
     typeId: string | null
+    isPantryStaple: boolean
     name: string
+    aliases: string[]
     calorieAmount: number | null
     calories: number | null
     caloriesPer100g: number | null
@@ -55,10 +57,25 @@ const calories = computed(() => {
           {{ ingredient.name }}
         </h3>
         <p
+          v-if="ingredient.aliases.length > 0"
+          class="text-xs text-muted"
+        >
+          Also known as {{ ingredient.aliases.join(', ') }}
+        </p>
+        <p
           class="text-xs text-toned"
         >
           {{ ingredient.defaultUnit || 'No default unit' }} · {{ calories }}
         </p>
+        <UBadge
+          v-if="ingredient.isPantryStaple"
+          color="primary"
+          variant="subtle"
+          size="xs"
+          class="mt-2 w-fit"
+        >
+          Pantry staple
+        </UBadge>
       </div>
       <CardActionGroup
         @click.stop

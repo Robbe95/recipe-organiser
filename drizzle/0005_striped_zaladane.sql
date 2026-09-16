@@ -1,0 +1,1 @@
+ALTER TABLE "recipes"."ingredient" ADD COLUMN "aliases" text[] DEFAULT '{}' NOT NULL;

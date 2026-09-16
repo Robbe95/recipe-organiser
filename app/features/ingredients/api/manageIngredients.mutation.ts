@@ -15,9 +15,19 @@ function invalidateIngredientLibrary() {
 
 export function useLibraryIngredientMutations() {
   const onSuccess = invalidateIngredientLibrary()
+  const toast = useToast()
+
+  function onError(error: Error) {
+    toast.add({
+      title: 'Could not save ingredient',
+      color: 'error',
+      description: error.message,
+    })
+  }
 
   return {
     create: useMutation(orpc.recipes.createIngredient.mutationOptions({
+      onError,
       onSuccess,
     })),
     delete: useMutation(orpc.recipes.deleteIngredient.mutationOptions({
@@ -27,6 +37,7 @@ export function useLibraryIngredientMutations() {
       onSuccess,
     })),
     update: useMutation(orpc.recipes.updateIngredient.mutationOptions({
+      onError,
       onSuccess,
     })),
   }

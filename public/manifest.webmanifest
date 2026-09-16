@@ -1,0 +1,18 @@
+{
+  "name": "Kitchen",
+  "short_name": "Kitchen",
+  "description": "Your meal plan and shopping list.",
+  "start_url": "/kitchen",
+  "scope": "/kitchen",
+  "display": "standalone",
+  "background_color": "#f7f7f8",
+  "theme_color": "#ffffff",
+  "icons": [
+    {
+      "src": "/kitchen-icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}

@@ -16,12 +16,19 @@ import { useRecipeForCookingQuery } from '~/features/recipes/api/getRecipeForCoo
 import RecipeCookingFinishModal from '~/features/recipes/components/RecipeCookingFinishModal.vue'
 import RecipeCookingIngredientModal from '~/features/recipes/components/RecipeCookingIngredientModal.vue'
 
+import { formatRecipeInstruction } from '../../../../shared/utils/recipeInstructions'
+
 definePageMeta({
   layout: 'kitchen',
+  middleware: 'auth',
+  viewTransition: false,
 })
 
 const route = useRoute()
 const recipeId = computed(() => String(route.params.id))
+const mealPlanItemId = computed(() => typeof route.query.mealPlanItemId === 'string'
+  ? route.query.mealPlanItemId
+  : undefined)
 const recipeQuery = useRecipeForCookingQuery(recipeId.value)
 const recipe = computed(() => recipeQuery.data.value)
 const phase = ref<'complete' | 'ingredients' | 'steps'>('ingredients')
@@ -424,17 +431,21 @@ async function finishCooking() {
     return
   }
 
-  await completeRecipeCookingMutation.mutateAsync({
+  const completedRecipe = await completeRecipeCookingMutation.mutateAsync({
+    mealPlanItemId: mealPlanItemId.value,
     recipeId: recipe.value.id,
     calories: cookingCalories.value,
     ingredientUsage: cookingIngredientUsage.value,
     note: result.note,
   })
+
   localStorage.removeItem(sessionKey)
   activeTimers.value = []
   phase.value = 'complete'
   toast.add({
-    title: 'Recipe added to your history',
+    title: completedRecipe.completedMealPlanItemId
+      ? 'Finished and removed from your meal plan'
+      : 'Recipe added to your history',
     icon: 'i-lucide-check',
   })
 }
@@ -573,8 +584,9 @@ onBeforeUnmount(() => {
       sm:px-6
     "
   >
-    <USkeleton class="h-12 w-64" />
-    <USkeleton class="h-80 rounded-2xl" />
+    <KitchenLoading
+      label="Preheating your recipe"
+    />
   </div>
   <UEmpty
     v-else-if="!recipe"
@@ -592,21 +604,29 @@ onBeforeUnmount(() => {
   <div
     v-else
     class="
-      mx-auto flex min-h-[calc(100dvh-4rem)] w-full max-w-7xl flex-col gap-6
-      px-4 py-6
-      sm:px-6 sm:py-8
+      mx-auto flex min-h-dvh w-full max-w-2xl flex-col gap-5 px-5 py-4
+      sm:px-6
+      md:max-w-6xl md:px-8 md:py-6
     "
   >
     <div class="flex items-center justify-between gap-4">
       <UButton
         to="/kitchen"
-        label="Recipes"
+        aria-label="Back to recipes"
+        class="size-10 justify-center rounded-full"
         icon="i-lucide-arrow-left"
         color="neutral"
         variant="ghost"
       />
-      <div class="flex items-center gap-2 text-sm text-toned">
-        <span>Portions</span>
+      <span
+        v-if="phase === 'steps'"
+        class="min-w-0 truncate font-semibold text-highlighted"
+      >{{ recipe.name }}</span>
+      <div
+        v-else
+        class="flex items-center gap-2 text-sm text-toned"
+      >
+        <span>Serves</span>
         <UInput
           v-model.number="cookingPortions"
           type="number"
@@ -622,7 +642,11 @@ onBeforeUnmount(() => {
       v-if="phase === 'ingredients'"
       class="flex flex-col gap-6"
     >
-      <div class="overflow-hidden rounded-2xl bg-elevated">
+      <div
+        class="
+          overflow-hidden rounded-3xl bg-elevated shadow-sm ring-1 ring-default
+        "
+      >
         <img
           v-if="recipe.image"
           :src="recipe.image.url"
@@ -752,20 +776,25 @@ onBeforeUnmount(() => {
           </section>
         </div>
       </div>
-      <UButton
-        label="Start cooking"
-        icon="i-lucide-chef-hat"
-        size="xl"
-        class="self-start"
-        @click="startCooking"
-      />
+      <div
+        class="sticky bottom-0 -mx-5 bg-default/90 px-5 py-3 backdrop-blur-xl"
+      >
+        <UButton
+          label="Start cooking"
+          icon="i-lucide-chef-hat"
+          size="xl"
+          class="min-h-13 rounded-2xl"
+          block
+          @click="startCooking"
+        />
+      </div>
     </section>
 
     <section
       v-else-if="phase === 'steps'"
       class="
         grid flex-1 gap-5
-        lg:grid-cols-[minmax(0,1fr)_18rem]
+        md:grid-cols-[minmax(0,1fr)_18rem]
       "
     >
       <div class="flex min-w-0 flex-col gap-5">
@@ -797,8 +826,8 @@ onBeforeUnmount(() => {
             :transition="{ duration: 0.22,
                            ease: 'easeOut' }"
             class="
-              flex flex-2 flex-col justify-between gap-5 rounded-4xl
-              bg-elevated/70 p-5 shadow-sm
+              flex flex-2 flex-col justify-between gap-5 rounded-3xl bg-elevated
+              p-6 shadow-sm ring-1 ring-default
               sm:min-h-128 sm:p-10
             "
           >
@@ -813,11 +842,11 @@ onBeforeUnmount(() => {
               <p
                 class="
                   max-w-4xl text-xl/8 font-medium wrap-break-word
-                  text-highlighted
+                  whitespace-pre-line text-highlighted
                   sm:text-4xl/12
                 "
               >
-                {{ currentStep?.instruction }}
+                {{ formatRecipeInstruction(currentStep?.instruction || '') }}
               </p>
             </div>
             <div class="flex flex-wrap items-center gap-2">
@@ -867,26 +896,30 @@ onBeforeUnmount(() => {
               <p class="text-xs font-medium tracking-wide text-toned uppercase">
                 Up next
               </p>
-              <p class="line-clamp-3 text-lg text-highlighted">
-                {{ nextStep.instruction }}
+              <p
+                class="
+                  line-clamp-3 text-lg whitespace-pre-line text-highlighted
+                "
+              >
+                {{ formatRecipeInstruction(nextStep.instruction) }}
               </p>
             </Motion>
           </AnimatePresence>
         </div>
         <div
           class="
-            sticky bottom-0 z-10 -mx-4 -mb-6 flex flex-col gap-0 bg-default/95
-            px-4 backdrop-blur-sm
-            sm:-mb-8
-            lg:static lg:mx-0 lg:mb-0 lg:flex-row lg:items-center
-            lg:justify-between lg:bg-transparent lg:p-0 lg:backdrop-blur-none
+            sticky bottom-0 z-10 -mx-5 -mb-4 flex flex-col gap-0 bg-default/90
+            px-5 pt-2 pb-[max(1rem,env(safe-area-inset-bottom))]
+            backdrop-blur-xl
+            md:static md:mx-0 md:mb-0 md:flex-row md:items-center
+            md:justify-between md:bg-transparent md:p-0 md:backdrop-blur-none
           "
         >
           <div
             v-if="timerCards.length > 0"
             class="
               flex flex-col gap-0 border-b border-default py-1
-              lg:hidden
+              md:hidden
             "
           >
             <AnimatePresence>
@@ -926,14 +959,15 @@ onBeforeUnmount(() => {
               </Motion>
             </AnimatePresence>
           </div>
-          <div class="flex w-full items-center justify-between gap-3 py-2">
+          <div class="flex w-full items-center gap-3 py-2">
             <UButton
               :disabled="stepIndex === 0"
               label="Back"
               icon="i-lucide-arrow-left"
               color="neutral"
               variant="soft"
-              size="sm"
+              class="min-h-12 rounded-2xl"
+              size="lg"
               @click="previous"
             />
             <UButton
@@ -941,7 +975,8 @@ onBeforeUnmount(() => {
               :loading="completeRecipeCookingMutation.isLoading.value"
               :label="stepIndex >= recipe.steps.length - 1 ? 'Finish recipe' : 'Next step'"
               trailing-icon="i-lucide-arrow-right"
-              size="sm"
+              class="min-h-12 flex-1 rounded-2xl"
+              size="lg"
               @click="stepIndex >= recipe.steps.length - 1 ? finishCooking() : next()"
             />
           </div>
@@ -950,7 +985,7 @@ onBeforeUnmount(() => {
       <aside
         class="
           hidden
-          lg:flex lg:flex-col lg:gap-3
+          md:flex md:flex-col md:gap-3
         "
       >
         <Motion

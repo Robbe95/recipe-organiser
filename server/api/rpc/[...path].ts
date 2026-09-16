@@ -12,7 +12,10 @@ export default eventHandler(async (event) => {
   const {
     response,
   } = await handler.handle(request, {
-    context: await createORPCContext(request),
+    context: {
+      ...await createORPCContext(request),
+      waitUntil: (promise) => event.waitUntil(promise),
+    },
     prefix: '/api/rpc',
   })
 

@@ -5,7 +5,12 @@ import { put } from '@vercel/blob/client'
 import { useCompleteImageUploadMutation } from '~/features/images/api/completeUpload.mutation'
 import { useCreateImageUploadMutation } from '~/features/images/api/createUpload.mutation'
 
-const imageId = defineModel<string | null>({
+const props = defineProps<{ active?: boolean
+  disabled?: boolean }>()
+
+const emit = defineEmits<{ uploading: [value: boolean] }>()
+
+const imageIds = defineModel<string[]>({
   required: true,
 })
 
@@ -13,8 +18,13 @@ const completeUpload = useCompleteImageUploadMutation()
 const createUpload = useCreateImageUploadMutation()
 const fileInput = useTemplateRef('fileInput')
 const errorMessage = ref('')
-const previewUrl = ref('')
+const previews = ref<{ id: string
+  name: string
+  url: string }[]>([])
 const uploading = ref(false)
+
+watch(uploading, (value) => emit('uploading', value))
+
 const acceptedContentTypes = new Set([
   'image/avif',
   'image/heic',
@@ -36,15 +46,12 @@ function chooseFile() {
 
 async function uploadFile(file: File) {
   if (!acceptedContentTypes.has(file.type)) {
-    errorMessage.value = 'Use a JPEG, PNG, WebP, AVIF, HEIC, or HEIF image.'
+    errorMessage.value += `${file.name}: unsupported image format. `
 
     return
   }
 
   try {
-    errorMessage.value = ''
-    uploading.value = true
-
     const contentType = file.type as 'image/avif' | 'image/heic' | 'image/heif' | 'image/jpeg' | 'image/png' | 'image/webp'
     const uploadTarget = await createUpload.mutateAsync({
       contentType,
@@ -75,43 +82,77 @@ async function uploadFile(file: File) {
       throw new Error('Image upload did not return an image.')
     }
 
-    if (previewUrl.value) {
-      URL.revokeObjectURL(previewUrl.value)
-    }
-
-    imageId.value = image.id
-    previewUrl.value = URL.createObjectURL(file)
+    imageIds.value = [
+      ...imageIds.value,
+      image.id,
+    ]
+    previews.value.push({
+      id: image.id,
+      name: file.name,
+      url: URL.createObjectURL(file),
+    })
   }
   catch (error) {
     console.error(error)
-    errorMessage.value = 'We could not upload that image. Please try again.'
+    errorMessage.value += `${file.name}: upload failed. Please select it again to retry. `
   }
   finally {
-    uploading.value = false
-
     if (fileInput.value) {
       fileInput.value.value = ''
     }
   }
 }
 
-async function handleFileInput(event: Event) {
-  const file = (event.target as HTMLInputElement).files?.[0]
+async function uploadFiles(files: File[]) {
+  if (uploading.value || props.disabled) {
+    return
+  }
+  if (files.length + imageIds.value.length > 20) {
+    errorMessage.value = 'Choose up to 20 images per batch.'
 
-  if (file) {
-    await uploadFile(file)
+    return
+  }
+
+  errorMessage.value = ''
+  uploading.value = true
+
+  try {
+    for (const file of files) {
+      await uploadFile(file)
+    }
+  }
+  finally {
+    uploading.value = false
   }
 }
 
-function handlePaste(event: ClipboardEvent) {
-  const file = Array.from(event.clipboardData?.files || []).find((item) => item.type.startsWith('image/'))
+async function handleFileInput(event: Event) {
+  await uploadFiles(Array.from((event.target as HTMLInputElement).files || []))
+}
 
-  if (!file) {
+function handlePaste(event: ClipboardEvent) {
+  if (props.active === false) {
+    return
+  }
+  const files = Array.from(event.clipboardData?.files || []).filter((item) => item.type.startsWith('image/'))
+
+  if (files.length === 0) {
     return
   }
 
   event.preventDefault()
-  void uploadFile(file)
+  void uploadFiles(files)
+}
+
+function removeImage(id: string) {
+  const preview = previews.value.find((item) => item.id === id)
+
+  if (preview) {
+    URL.revokeObjectURL(preview.url)
+  }
+
+  previews.value = previews.value.filter((item) => item.id !== id)
+  imageIds.value = imageIds.value.filter((item) => item !== id)
 }
 
 onMounted(() => {
@@ -121,70 +162,77 @@ onMounted(() => {
 onBeforeUnmount(() => {
   window.removeEventListener('paste', handlePaste)
 
-  if (previewUrl.value) {
-    URL.revokeObjectURL(previewUrl.value)
-  }
+  previews.value.forEach((item) => URL.revokeObjectURL(item.url))
 })
 </script>
 
 <template>
-  <div class="flex flex-col gap-2">
-    <label
-      class="sr-only"
-      for="recipe-import-image"
-    >Choose recipe image</label>
+  <div class="flex flex-col gap-3">
     <input
-      id="recipe-import-image"
       ref="fileInput"
       accept="image/jpeg,image/png,image/webp,image/avif,image/heic,image/heif"
       class="hidden"
       type="file"
+      aria-label="Choose recipe images"
+      multiple
       @change="handleFileInput"
     >
     <button
+      :disabled="uploading || props.disabled"
       type="button"
       class="
-        relative flex h-40 w-full flex-col items-center justify-center gap-2
-        overflow-hidden rounded-xl border border-dashed border-default
-        bg-elevated/40 text-center transition-colors
+        flex h-36 flex-col items-center justify-center gap-2 rounded-lg border
+        border-dashed border-default bg-muted/30
         hover:bg-elevated
       "
       @click="chooseFile"
+      @dragover.prevent
+      @drop.prevent="uploadFiles(Array.from($event.dataTransfer?.files || []))"
     >
-      <img
-        v-if="previewUrl"
-        :src="previewUrl"
-        alt="Recipe to import"
-        class="absolute inset-0 size-full object-cover"
-      >
-      <span
-        v-if="previewUrl"
-        class="absolute inset-0 bg-black/45"
-        aria-hidden="true"
-      />
       <UIcon
-        :name="uploading ? 'i-lucide-loader-circle' : imageId ? 'i-lucide-image-check' : 'i-lucide-image-plus'"
-        :class="[
-          previewUrl ? 'text-white' : 'text-primary',
-          uploading ? 'animate-spin' : '',
-        ]"
-        class="relative size-7"
+        :name="uploading ? 'i-lucide-loader-circle' : 'i-lucide-images'"
+        :class="uploading ? `animate-spin` : ''"
+        class="size-6 text-muted"
       />
-      <span
-        :class="[previewUrl ? `text-white` : `text-highlighted`]"
-        class="relative text-sm font-medium"
-      >
-        {{ uploading ? 'Uploading image…' : imageId ? 'Replace image' : 'Choose or paste recipe image' }}
-      </span>
-      <span
-        :class="[previewUrl ? 'text-white/80' : `text-toned`]"
-        class="relative text-xs"
-      >
-        Paste an image anywhere in this modal · JPEG, PNG, WebP, AVIF, HEIC or HEIF
-      </span>
+      <span class="text-sm font-medium">{{ uploading ? 'Uploading images…' : 'Choose, drop or paste recipe images' }}</span>
+      <span class="text-xs text-muted">One image = one recipe · Up to 20 at a time</span>
     </button>
+    <div
+      v-if="previews.length > 0"
+      class="max-h-60 divide-y divide-default overflow-y-auto"
+    >
+      <div
+        v-for="(preview, index) in previews"
+        :key="preview.id"
+        class="flex items-center gap-3 py-2"
+      >
+        <img
+          :src="preview.url"
+          :alt="preview.name"
+          class="size-10 rounded-sm object-cover"
+        >
+        <div class="min-w-0 flex-1">
+          <p class="truncate text-sm">
+            {{ preview.name }}
+          </p><p
+            class="text-xs text-muted"
+          >
+            Recipe {{ index + 1 }} · Ready to import
+          </p>
+        </div>
+        <UButton
+          :disabled="uploading || props.disabled"
+          :aria-label="`Remove ${preview.name}`"
+          icon="i-lucide-x"
+          color="neutral"
+          variant="ghost"
+          @click="removeImage(preview.id)"
+        />
+      </div>
+    </div>
     <p
       v-if="errorMessage"
+      role="alert"
       class="text-sm text-error"
     >
       {{ errorMessage }}

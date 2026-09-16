@@ -1,7 +1,8 @@
 <script setup lang="ts">
 const props = defineProps<{
   ingredients: Array<{ id: string
-    name: string }>
+    name: string
+    aliases?: string[] }>
 }>()
 
 /* eslint-disable @intlify/vue-i18n/no-raw-text */
@@ -13,7 +14,10 @@ const value = ref('')
 const activeIndex = ref(-1)
 const searchTerm = computed(() => value.value.trim().replace(/^\d+(?:\.\d+)?\s*/, '').toLowerCase())
 const matches = computed(() => searchTerm.value
-  ? props.ingredients.filter((ingredient) => ingredient.name.toLowerCase().includes(searchTerm.value)).slice(0, 6)
+  ? props.ingredients.filter((ingredient) => [
+      ingredient.name,
+      ...ingredient.aliases || [],
+    ].some((name) => name.toLowerCase().includes(searchTerm.value))).slice(0, 6)
   : [])
 
 function addIngredient(name: string) {

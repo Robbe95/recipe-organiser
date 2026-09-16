@@ -41,7 +41,9 @@ const ingredientFormModal = overlay.create(IngredientFormModal)
 const ingredientTypeFormModal = overlay.create(IngredientTypeFormModal)
 const newIngredient = reactive({
   typeId: '',
+  isPantryStaple: false,
   name: '',
+  aliases: [] as string[],
   defaultUnit: '',
   requiresWeight: false,
   variants: [
@@ -85,7 +87,10 @@ const ingredientGroups = computed(() => {
     ...type,
     ingredients: data.ingredients.filter((ingredient) => {
       const matchesSearch = !normalizedSearch.value
-        || ingredient.name.toLowerCase().includes(normalizedSearch.value)
+        || [
+          ingredient.name,
+          ...ingredient.aliases,
+        ].some((name) => name.toLowerCase().includes(normalizedSearch.value))
 
       return ingredient.typeId === type.id && matchesSearch
     }),
@@ -155,7 +160,9 @@ async function addIngredient() {
   })
   Object.assign(newIngredient, {
     typeId: '',
+    isPantryStaple: false,
     name: '',
+    aliases: [],
     defaultUnit: '',
     requiresWeight: false,
     variants: [
@@ -172,7 +179,9 @@ async function addIngredient() {
 
 async function saveIngredient(item: { id: string
   typeId: string | null
+  isPantryStaple: boolean
   name: string
+  aliases: string[]
   defaultUnit: string | null
   requiresWeight: boolean
   variants: Array<{
@@ -204,7 +213,9 @@ async function openNewIngredient() {
   editingIngredientId.value = null
   Object.assign(newIngredient, {
     typeId: '',
+    isPantryStaple: false,
     name: '',
+    aliases: [],
     defaultUnit: '',
     requiresWeight: false,
     variants: [
@@ -235,7 +246,9 @@ async function openNewIngredient() {
 
 async function openIngredient(item: { id: string
   typeId: string | null
+  isPantryStaple: boolean
   name: string
+  aliases: string[]
   defaultUnit: string | null
   requiresWeight: number
   variants: Array<{
@@ -249,6 +262,7 @@ async function openIngredient(item: { id: string
   Object.assign(newIngredient, {
     ...item,
     typeId: item.typeId || '',
+    isPantryStaple: item.isPantryStaple,
     defaultUnit: item.defaultUnit || '',
     requiresWeight: Boolean(item.requiresWeight),
     variants: item.variants.map((variant) => ({
@@ -425,20 +439,10 @@ async function deleteType(item: { id: string
         <span class="self-center text-sm text-toned">{{ visibleIngredientCount }} ingredients</span>
       </div>
 
-      <div
+      <KitchenLoading
         v-if="formDataQuery.isPending.value"
-        class="
-          grid gap-4
-          sm:grid-cols-2
-          xl:grid-cols-3
-        "
-      >
-        <USkeleton
-          v-for="index in 6"
-          :key="index"
-          class="h-28"
-        />
-      </div>
+        label="Organising your ingredients"
+      />
       <UPageCard
         v-else-if="visibleIngredientCount === 0"
         class="border-dashed py-12 text-center"

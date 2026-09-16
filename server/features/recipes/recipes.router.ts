@@ -7,9 +7,16 @@ import {
   inArray,
   isNotNull,
   isNull,
+  sql,
 } from 'drizzle-orm'
 import * as v from 'valibot'
 
+import {
+  buildIngredientLookup,
+  findIngredientNameConflict,
+  normalizeIngredientAliases,
+} from '../../../shared/utils/ingredientAliases'
+import { ingredientLibraryKey } from '../../../shared/utils/ingredientLibraryKey'
 import { db } from '../../db'
 import {
   ingredient,
@@ -22,15 +29,14 @@ import {
   recipeLabel,
   recipeStep,
 } from '../../db/schema'
-import {
-  protectedProcedure,
-  publicProcedure,
-} from '../../orpc/procedure'
+import { protectedProcedure } from '../../orpc/procedure'
+import { getHouseholdForUser } from '../households/household.service'
 import {
   createReadUrl,
   readObject,
 } from '../images/imageStorage'
 import { imageAsset } from '../images/schema'
+import { mealPlanItem } from '../meal-planner/schema'
 import type { ImportedRecipe } from './recipeImport.service'
 import {
   extractRecipeFromImage,
@@ -183,33 +189,6 @@ function importedTypeId(
 
 function ingredientKey(name: string, unit: string | null) {
   return `${name.toLocaleLowerCase().replaceAll(/[^a-z0-9]+/g, '')}:${unit || ''}`
-}
-
-function ingredientLibraryKey(name: string) {
-  return name
-    .normalize('NFD')
-    .replaceAll(/[\u0300-\u036F]/g, '')
-    .toLocaleLowerCase()
-    .replaceAll(/[^a-z0-9]+/g, ' ')
-    .trim()
-    .split(' ')
-    .map((word) => {
-      if (word.endsWith('ies')) {
-        return `${word.slice(0, -3)}y`
-      }
-      if (word.endsWith('oes')) {
-        return `${word.slice(0, -2)}`
-      }
-      if (/(?:ches|shes|sses|xes|zes)$/.test(word)) {
-        return word.slice(0, -2)
-      }
-      if (word.endsWith('s') && !/(?:ss|us|is)$/.test(word)) {
-        return word.slice(0, -1)
-      }
-
-      return word
-    })
-    .join(' ')
 }
 
 function normalizedImportedIngredients(items: ImportedRecipe['ingredients']) {
@@ -500,9 +479,40 @@ const ingredientVariantInput = v.object({
   calorieUnit: v.optional(v.nullable(v.pipe(v.string(), v.trim(), v.maxLength(30)))),
 })
 
+const ingredientAliasInput = v.pipe(v.string(), v.trim(), v.minLength(1), v.maxLength(120))
+const ingredientAliasesInput = v.pipe(v.array(ingredientAliasInput), v.maxLength(30))
+
+type IngredientTransaction = Parameters<Parameters<typeof db.transaction>[0]>[0]
+
+async function lockIngredientNames(tx: IngredientTransaction, userId: string) {
+  await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${`ingredient-names:${userId}`}))`)
+}
+
+async function validateIngredientAliases(tx: IngredientTransaction, userId: string, name: string, aliases: string[], id = '') {
+  const normalized = normalizeIngredientAliases(name, aliases)
+  const owned = await tx.query.ingredient.findMany({
+    where: eq(ingredient.createdById, userId),
+  })
+  const conflict = findIngredientNameConflict(owned, {
+    id,
+    name,
+    aliases: normalized,
+  })
+
+  if (conflict) {
+    throw new ORPCError('CONFLICT', {
+      message: `That name or alias already belongs to ${conflict.name}. Use that ingredient instead.`,
+    })
+  }
+
+  return normalized
+}
+
 const createIngredientInput = v.object({
   typeId: v.optional(v.nullable(v.pipe(v.string(), v.uuid()))),
+  isPantryStaple: v.optional(v.boolean()),
   name: v.pipe(v.string(), v.trim(), v.minLength(1), v.maxLength(120)),
+  aliases: v.optional(ingredientAliasesInput, []),
   calorieAmount: v.optional(v.nullable(v.pipe(v.number(), v.minValue(0.001), v.maxValue(100_000)))),
   calories: v.optional(v.nullable(v.pipe(v.number(), v.integer(), v.minValue(0), v.maxValue(100_000)))),
   caloriesPer100g: v.optional(v.nullable(v.pipe(v.number(), v.integer(), v.minValue(0), v.maxValue(2000)))),
@@ -561,6 +571,9 @@ const createIngredient = protectedProcedure.input(createIngredientInput).handler
     }
   }
   const created = await db.transaction(async (tx) => {
+    await lockIngredientNames(tx, context.user.id)
+
+    const aliases = await validateIngredientAliases(tx, context.user.id, input.name, input.aliases)
     const variants = input.variants || [
       {
         name: 'Generic',
@@ -576,7 +589,9 @@ const createIngredient = protectedProcedure.input(createIngredientInput).handler
     ] = await tx.insert(ingredient).values({
       ...input,
       createdById: context.user.id,
+      isPantryStaple: input.isPantryStaple ?? false,
       name: capitalizeIngredientName(input.name),
+      aliases,
       calorieAmount: defaultVariant?.calorieAmount ?? null,
       calories: defaultVariant?.calories ?? null,
       caloriesPer100g: null,
@@ -607,7 +622,9 @@ const createIngredient = protectedProcedure.input(createIngredientInput).handler
 const updateIngredientInput = v.object({
   id: v.pipe(v.string(), v.uuid()),
   typeId: v.optional(v.nullable(v.pipe(v.string(), v.uuid()))),
+  isPantryStaple: v.optional(v.boolean()),
   name: v.optional(v.pipe(v.string(), v.trim(), v.minLength(1), v.maxLength(120))),
+  aliases: v.optional(ingredientAliasesInput),
   calorieAmount: v.optional(v.nullable(v.pipe(v.number(), v.minValue(0.001), v.maxValue(100_000)))),
   calories: v.optional(v.nullable(v.pipe(v.number(), v.integer(), v.minValue(0), v.maxValue(100_000)))),
   caloriesPer100g: v.optional(v.nullable(v.pipe(v.number(), v.integer(), v.minValue(0), v.maxValue(2000)))),
@@ -630,6 +647,20 @@ const updateIngredient = protectedProcedure.input(updateIngredientInput).handler
     }
   }
   const updated = await db.transaction(async (tx) => {
+    await lockIngredientNames(tx, context.user.id)
+
+    const current = await tx.query.ingredient.findFirst({
+      where: and(eq(ingredient.id, input.id), eq(ingredient.createdById, context.user.id)),
+    })
+
+    if (!current) {
+      throw new ORPCError('NOT_FOUND')
+    }
+    const requestedName = input.name ?? current.name
+    const requestedAliases = input.aliases ?? current.aliases
+    const aliases = input.name !== undefined || input.aliases !== undefined
+      ? await validateIngredientAliases(tx, context.user.id, requestedName, requestedAliases, input.id)
+      : current.aliases
     const variants = input.variants
     const defaultVariant = variants?.find((item) => item.isDefault) || variants?.[0]
     const requiresWeight = input.requiresWeight === undefined
@@ -639,7 +670,9 @@ const updateIngredient = protectedProcedure.input(updateIngredientInput).handler
       changed,
     ] = await tx.update(ingredient).set({
       typeId: input.typeId,
+      isPantryStaple: input.isPantryStaple,
       name: input.name ? capitalizeIngredientName(input.name) : undefined,
+      aliases,
       calorieAmount: defaultVariant?.calorieAmount ?? input.calorieAmount,
       calories: defaultVariant?.calories ?? input.calories,
       caloriesPer100g: input.caloriesPer100g,
@@ -668,6 +701,42 @@ const updateIngredient = protectedProcedure.input(updateIngredientInput).handler
   }
 
   return updated
+})
+
+const addIngredientAlias = protectedProcedure.input(v.object({
+  id: v.pipe(v.string(), v.uuid()),
+  alias: v.pipe(v.string(), v.trim(), v.minLength(1), v.maxLength(120)),
+})).handler(async ({
+  context, input,
+}) => {
+  return await db.transaction(async (tx) => {
+    await lockIngredientNames(tx, context.user.id)
+
+    const current = await tx.query.ingredient.findFirst({
+      where: and(eq(ingredient.id, input.id), eq(ingredient.createdById, context.user.id)),
+    })
+
+    if (!current) {
+      throw new ORPCError('NOT_FOUND')
+    }
+    const aliases = await validateIngredientAliases(tx, context.user.id, current.name, [
+      ...current.aliases,
+      input.alias,
+    ], current.id)
+
+    if (aliases.length > 30) {
+      throw new ORPCError('BAD_REQUEST', {
+        message: 'An ingredient can have up to 30 aliases.',
+      })
+    }
+    const [
+      updated,
+    ] = await tx.update(ingredient).set({
+      aliases,
+    }).where(and(eq(ingredient.id, current.id), eq(ingredient.createdById, context.user.id))).returning()
+
+    return updated
+  })
 })
 
 const createIngredientVariant = protectedProcedure.input(v.object({
@@ -850,14 +919,17 @@ const deleteIngredientType = protectedProcedure.input(v.object({
   }
 })
 
-const listRecipes = publicProcedure.input(v.object({
+const listRecipes = protectedProcedure.input(v.object({
   archived: v.optional(v.boolean()),
 })).handler(async ({
-  input,
+  context, input,
 }) => {
   const recipes = await db.query.recipe.findMany({
     orderBy: (table) => desc(table.createdAt),
-    where: (table) => input.archived ? isNotNull(table.archivedAt) : isNull(table.archivedAt),
+    where: (table) => and(
+      eq(table.createdById, context.user.id),
+      input.archived ? isNotNull(table.archivedAt) : isNull(table.archivedAt),
+    ),
   })
   const imageIds = recipes.flatMap((savedRecipe) => savedRecipe.imageId
     ? [
@@ -983,13 +1055,13 @@ const getRecipe = protectedProcedure.input(v.object({
   }
 })
 
-const getRecipeForCooking = publicProcedure.input(v.object({
+const getRecipeForCooking = protectedProcedure.input(v.object({
   id: v.pipe(v.string(), v.uuid()),
 })).handler(async ({
-  input,
+  context, input,
 }) => {
   const savedRecipe = await db.query.recipe.findFirst({
-    where: eq(recipe.id, input.id),
+    where: and(eq(recipe.id, input.id), eq(recipe.createdById, context.user.id)),
   })
 
   if (!savedRecipe) {
@@ -1093,7 +1165,8 @@ const getRecipeForCooking = publicProcedure.input(v.object({
   }
 })
 
-const completeRecipeCooking = publicProcedure.input(v.object({
+const completeRecipeCooking = protectedProcedure.input(v.object({
+  mealPlanItemId: v.optional(v.pipe(v.string(), v.uuid())),
   recipeId: v.pipe(v.string(), v.uuid()),
   calories: v.optional(v.nullable(v.pipe(v.number(), v.integer(), v.minValue(0), v.maxValue(1_000_000)))),
   ingredientUsage: v.optional(v.array(v.object({
@@ -1103,27 +1176,66 @@ const completeRecipeCooking = publicProcedure.input(v.object({
   }))),
   note: v.optional(v.pipe(v.string(), v.trim(), v.maxLength(2000))),
 })).handler(async ({
-  input,
+  context, input,
 }) => {
   const savedRecipe = await db.query.recipe.findFirst({
-    where: eq(recipe.id, input.recipeId),
+    where: and(eq(recipe.id, input.recipeId), eq(recipe.createdById, context.user.id)),
   })
 
   if (!savedRecipe) {
     throw new ORPCError('NOT_FOUND')
   }
 
-  const [
-    cooking,
-  ] = await db.insert(recipeCooking).values({
-    createdById: savedRecipe.createdById,
-    recipeId: savedRecipe.id,
-    calories: input.calories ?? null,
-    ingredientUsage: input.ingredientUsage || [],
-    note: input.note || null,
-  }).returning()
+  const householdId = await getHouseholdForUser(context.user.id)
 
-  return cooking
+  return db.transaction(async (tx) => {
+    const plannedItem = await tx.query.mealPlanItem.findFirst({
+      orderBy: (table) => [
+        asc(table.sortOrder),
+        asc(table.createdAt),
+      ],
+      where: input.mealPlanItemId
+        ? and(
+            eq(mealPlanItem.householdId, householdId),
+            eq(mealPlanItem.id, input.mealPlanItemId),
+            eq(mealPlanItem.recipeId, savedRecipe.id),
+          )
+        : and(
+            eq(mealPlanItem.householdId, householdId),
+            eq(mealPlanItem.recipeId, savedRecipe.id),
+          ),
+    })
+
+    if (input.mealPlanItemId && !plannedItem) {
+      throw new ORPCError('NOT_FOUND')
+    }
+
+    const [
+      cooking,
+    ] = await tx.insert(recipeCooking).values({
+      createdById: context.user.id,
+      recipeId: savedRecipe.id,
+      calories: input.calories ?? null,
+      ingredientUsage: input.ingredientUsage || [],
+      note: input.note || null,
+    }).returning()
+
+    if (!cooking) {
+      throw new ORPCError('INTERNAL_SERVER_ERROR')
+    }
+
+    if (plannedItem) {
+      await tx.delete(mealPlanItem).where(and(
+        eq(mealPlanItem.householdId, householdId),
+        eq(mealPlanItem.id, plannedItem.id),
+      ))
+    }
+
+    return {
+      completedMealPlanItemId: plannedItem?.id || null,
+      cooking,
+    }
+  })
 })
 
 const listRecipeCookingHistory = protectedProcedure.handler(async ({
@@ -1259,29 +1371,26 @@ async function saveImportedRecipe(input: {
   imported: ImportedRecipe
   sourceName?: string
   sourceUrl?: string
-}) {
+}, database: Parameters<Parameters<typeof db.transaction>[0]>[0] | typeof db = db) {
   const [
     existingIngredients,
     ingredientTypes,
   ] = await Promise.all([
-    db.query.ingredient.findMany({
+    database.query.ingredient.findMany({
       where: eq(ingredient.createdById, input.userId),
     }),
-    db.query.ingredientType.findMany({
+    database.query.ingredientType.findMany({
       where: eq(ingredientType.createdById, input.userId),
     }),
   ])
-  const ingredientByName = new Map(existingIngredients.map((item) => [
-    ingredientLibraryKey(item.name),
-    item,
-  ]))
+  const ingredientByName = buildIngredientLookup(existingIngredients)
   const typeByName = new Map(ingredientTypes.map((item) => [
     item.name.trim().toLocaleLowerCase(),
     item,
   ]))
   const fallbackType = typeByName.get('other')
-  const importedIngredients = normalizedImportedIngredients(input.imported.ingredients)
-  const savedIngredients = await db.transaction(async (tx) => {
+  const importedIngredients = input.imported.ingredients
+  const savedIngredients = await database.transaction(async (tx) => {
     const result: Array<typeof existingIngredients[number]> = []
 
     for (const item of importedIngredients) {
@@ -1297,6 +1406,7 @@ async function saveImportedRecipe(input: {
         ] = await tx.insert(ingredient).values({
           createdById: input.userId,
           typeId,
+          isPantryStaple: item.isPantryStaple,
           name,
           calorieAmount: nutrition.calorieAmount,
           calories: nutrition.calories,
@@ -1321,19 +1431,6 @@ async function saveImportedRecipe(input: {
         savedIngredient = created
         ingredientByName.set(key, created)
       }
-      else if (savedIngredient.typeId === fallbackType?.id && typeId && typeId !== fallbackType.id) {
-        const [
-          updated,
-        ] = await tx.update(ingredient).set({
-          typeId: typeId || savedIngredient.typeId,
-          name,
-        }).where(eq(ingredient.id, savedIngredient.id)).returning()
-
-        if (updated) {
-          savedIngredient = updated
-          ingredientByName.set(key, updated)
-        }
-      }
 
       result.push(savedIngredient)
     }
@@ -1348,7 +1445,7 @@ async function saveImportedRecipe(input: {
   } => Boolean(item.ingredientId))
   const calories = calculateRecipeCalories(recipeIngredients, savedIngredients)
 
-  return await db.transaction(async (tx) => {
+  return await database.transaction(async (tx) => {
     const [
       created,
     ] = await tx.insert(recipe).values({
@@ -1430,7 +1527,6 @@ async function processRecipeImport(jobId: string) {
       updatedAt: new Date(),
       status: 'processing',
     }).where(eq(recipeImportJob.id, job.id))
-    await ensureDefaultIngredientTypes(job.createdById)
 
     let imported: ImportedRecipe
     let sourceName: string | undefined
@@ -1465,6 +1561,7 @@ async function processRecipeImport(jobId: string) {
       updatedAt: new Date(),
       draft: {
         ...imported,
+        ingredients: normalizedImportedIngredients(imported.ingredients),
         sourceName,
         sourceUrl,
       },
@@ -1486,6 +1583,7 @@ async function queueRecipeImport(input: {
   userId: string
   sourceText?: string
   sourceUrl?: string
+  waitUntil?: (promise: Promise<unknown>) => void
 }) {
   const [
     job,
@@ -1500,7 +1598,9 @@ async function queueRecipeImport(input: {
     throw new ORPCError('INTERNAL_SERVER_ERROR')
   }
 
-  void processRecipeImport(job.id)
+  const processing = processRecipeImport(job.id)
+
+  input.waitUntil?.(processing)
 
   return job
 }
@@ -1515,6 +1615,7 @@ const importRecipeFromImage = protectedProcedure.input(v.object({
   return await queueRecipeImport({
     imageId: input.imageId,
     userId: context.user.id,
+    waitUntil: context.waitUntil,
   })
 })
 
@@ -1526,6 +1627,7 @@ const importRecipeFromText = protectedProcedure.input(v.object({
   return await queueRecipeImport({
     userId: context.user.id,
     sourceText: input.text,
+    waitUntil: context.waitUntil,
   })
 })
 
@@ -1537,7 +1639,159 @@ const importRecipeFromUrl = protectedProcedure.input(v.object({
   return await queueRecipeImport({
     userId: context.user.id,
     sourceUrl: input.url,
+    waitUntil: context.waitUntil,
   })
+})
+
+const queueRecipeImports = protectedProcedure.input(v.object({
+  imageIds: v.pipe(v.array(v.pipe(v.string(), v.uuid())), v.maxLength(20)),
+  urls: v.pipe(v.array(v.pipe(v.string(), v.trim(), v.url(), v.maxLength(2000))), v.maxLength(20)),
+})).handler(async ({
+  context, input,
+}) => {
+  if (input.imageIds.length + input.urls.length < 1 || input.imageIds.length + input.urls.length > 20) {
+    throw new ORPCError('BAD_REQUEST', {
+      message: 'Choose between 1 and 20 recipes.',
+    })
+  }
+  for (const id of input.imageIds) {
+    await assertOwnImage(context.user.id, id)
+  }
+  const sources = [
+    ...new Set(input.imageIds),
+  ].map((imageId) => ({
+    createdById: context.user.id,
+    imageId,
+  }))
+  const values = [
+    ...sources,
+    ...[
+      ...new Set(input.urls),
+    ].map((sourceUrl) => ({
+      createdById: context.user.id,
+      sourceUrl,
+    })),
+  ]
+  // Persist the entire batch before starting any extraction.
+  const jobs = await db.insert(recipeImportJob).values(values).returning()
+  const remaining = [
+    ...jobs,
+  ]
+
+  // Limit each batch to three simultaneous AI requests.
+  async function worker() {
+    let job = remaining.shift()
+
+    while (job) {
+      await processRecipeImport(job.id)
+      job = remaining.shift()
+    }
+  }
+
+  const processing = Promise.all([
+    worker(),
+    worker(),
+    worker(),
+  ])
+
+  context.waitUntil?.(processing)
+
+  return jobs
+})
+
+const listRecipeImports = protectedProcedure.handler(async ({
+  context,
+}) => {
+  return await db.query.recipeImportJob.findMany({
+    orderBy: [
+      desc(recipeImportJob.createdAt),
+    ],
+    where: eq(recipeImportJob.createdById, context.user.id),
+  })
+})
+
+const saveRecipeImportDraft = protectedProcedure.input(v.object({
+  id: v.pipe(v.string(), v.uuid()),
+  draft: v.unknown(),
+})).handler(async ({
+  context, input,
+}) => {
+  const parsed = parseImportedRecipe(input.draft)
+  const current = await db.query.recipeImportJob.findFirst({
+    where: and(eq(recipeImportJob.id, input.id), eq(recipeImportJob.createdById, context.user.id)),
+  })
+  const metadata = current?.draft as { sourceName?: string
+    sourceUrl?: string } | null
+  const savedDraft = {
+    ...parsed,
+    sourceName: metadata?.sourceName,
+    sourceUrl: metadata?.sourceUrl,
+  }
+  const [
+    job,
+  ] = await db.update(recipeImportJob).set({
+    updatedAt: new Date(),
+    draft: savedDraft,
+  }).where(and(eq(recipeImportJob.id, input.id), eq(recipeImportJob.createdById, context.user.id), eq(recipeImportJob.status, 'review'))).returning()
+
+  if (!job) {
+    throw new ORPCError('NOT_FOUND')
+  }
+
+  return job
+})
+
+const removeRecipeImport = protectedProcedure.input(v.object({
+  id: v.pipe(v.string(), v.uuid()),
+})).handler(async ({
+  context, input,
+}) => {
+  const [
+    removed,
+  ] = await db.delete(recipeImportJob).where(and(
+    eq(recipeImportJob.id, input.id),
+    eq(recipeImportJob.createdById, context.user.id),
+    inArray(recipeImportJob.status, [
+      'queued',
+      'processing',
+      'review',
+      'failed',
+    ]),
+  )).returning({
+    id: recipeImportJob.id,
+  })
+
+  if (!removed) {
+    throw new ORPCError('NOT_FOUND', {
+      message: 'This pending import is no longer available.',
+    })
+  }
+
+  return removed
+})
+
+const retryRecipeImport = protectedProcedure.input(v.object({
+  id: v.pipe(v.string(), v.uuid()),
+})).handler(async ({
+  context, input,
+}) => {
+  const [
+    job,
+  ] = await db.update(recipeImportJob).set({
+    updatedAt: new Date(),
+    error: null,
+    status: 'queued',
+  }).where(and(eq(recipeImportJob.id, input.id), eq(recipeImportJob.createdById, context.user.id), eq(recipeImportJob.status, 'failed'))).returning()
+
+  if (!job) {
+    throw new ORPCError('NOT_FOUND')
+  }
+
+  const processing = processRecipeImport(job.id)
+
+  context.waitUntil?.(processing)
+
+  return job
 })
 
 const getRecipeImport = protectedProcedure.input(v.object({
@@ -1549,11 +1803,20 @@ const getRecipeImport = protectedProcedure.input(v.object({
     where: and(eq(recipeImportJob.id, input.id), eq(recipeImportJob.createdById, context.user.id)),
   })
 
-  if (!job || job.status !== 'review' || !job.draft) {
+  if (!job) {
     throw new ORPCError('NOT_FOUND')
   }
 
-  return job
+  const sourceImage = job.imageId
+    ? await db.query.imageAsset.findFirst({
+        where: and(eq(imageAsset.id, job.imageId), eq(imageAsset.createdById, context.user.id)),
+      })
+    : null
+
+  return {
+    ...job,
+    sourceImageUrl: sourceImage ? await createReadUrl(sourceImage.variantKeys.full).catch(() => null) : null,
+  }
 })
 
 const finalizeRecipeImport = protectedProcedure.input(v.object({
@@ -1562,31 +1825,47 @@ const finalizeRecipeImport = protectedProcedure.input(v.object({
 })).handler(async ({
   context, input,
 }) => {
-  const job = await db.query.recipeImportJob.findFirst({
-    where: and(eq(recipeImportJob.id, input.id), eq(recipeImportJob.createdById, context.user.id)),
+  const imported = parseImportedRecipe(input.draft)
+
+  await ensureDefaultIngredientTypes(context.user.id)
+
+  return await db.transaction(async (tx) => {
+    await lockIngredientNames(tx, context.user.id)
+
+    const [
+      job,
+    ] = await tx.update(recipeImportJob).set({
+      status: 'saving',
+    }).where(and(eq(recipeImportJob.id, input.id), eq(recipeImportJob.createdById, context.user.id), eq(recipeImportJob.status, 'review'))).returning()
+
+    if (!job) {
+      throw new ORPCError('CONFLICT', {
+        message: 'This import has already been added or is no longer ready for review.',
+      })
+    }
+    const metadata = job.draft as { sourceName?: string
+      sourceUrl?: string } | null
+    const savedRecipe = await saveImportedRecipe({
+      imageId: job.imageId || undefined,
+      userId: context.user.id,
+      imported,
+      sourceName: metadata?.sourceName,
+      sourceUrl: job.sourceUrl || metadata?.sourceUrl,
+    }, tx)
+
+    await tx.update(recipeImportJob).set({
+      recipeId: savedRecipe.id,
+      updatedAt: new Date(),
+      draft: {
+        ...imported,
+        sourceName: metadata?.sourceName,
+        sourceUrl: metadata?.sourceUrl,
+      },
+      status: 'completed',
+    }).where(eq(recipeImportJob.id, job.id))
+
+    return savedRecipe
   })
-
-  if (!job || job.status !== 'review') {
-    throw new ORPCError('NOT_FOUND')
-  }
-
-  const metadata = job.draft as { sourceName?: string
-    sourceUrl?: string } | null
-  const savedRecipe = await saveImportedRecipe({
-    imageId: job.imageId || undefined,
-    userId: context.user.id,
-    imported: parseImportedRecipe(input.draft),
-    sourceName: metadata?.sourceName,
-    sourceUrl: metadata?.sourceUrl,
-  })
-
-  await db.update(recipeImportJob).set({
-    recipeId: savedRecipe.id,
-    updatedAt: new Date(),
-    status: 'completed',
-  }).where(eq(recipeImportJob.id, job.id))
-
-  return savedRecipe
 })
 
 const updateRecipeInput = v.intersect([
@@ -1837,6 +2116,7 @@ const deleteRecipe = protectedProcedure.input(v.object({
 })
 
 export const recipesRouter = {
+  addIngredientAlias,
   archiveRecipe,
   completeRecipeCooking,
   createIngredient,
@@ -1860,8 +2140,13 @@ export const recipesRouter = {
   importRecipeFromUrl,
   listRecipeCookingHistory,
   listRecipeFormData,
+  listRecipeImports,
   listRecipes,
+  queueRecipeImports,
+  removeRecipeImport,
   restoreRecipe,
+  retryRecipeImport,
+  saveRecipeImportDraft,
   setRecipeFavorite,
   updateIngredient,
   updateIngredientType,

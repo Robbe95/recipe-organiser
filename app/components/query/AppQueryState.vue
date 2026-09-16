@@ -5,8 +5,6 @@ import {
 } from 'motion-v'
 import { computed } from 'vue'
 
-import AppQuerySkeleton from './AppQuerySkeleton.vue'
-
 const props = withDefaults(defineProps<{
   hasData?: boolean
   columns?: number
@@ -33,11 +31,7 @@ const showSkeleton = computed(() => props.loading && !props.hasData)
       :transition="{ duration: 0.12,
                      ease: 'easeOut' }"
     >
-      <AppQuerySkeleton
-        :columns="columns"
-        :rows="rows"
-        :variant="variant"
-      />
+      <KitchenLoading label="Loading your kitchen" />
     </Motion>
     <Motion
       v-else

@@ -1,191 +1,167 @@
 <script setup lang="ts">
 /* eslint-disable @intlify/vue-i18n/no-raw-text */
-import { useImportRecipeFromImageMutation } from '../api/importRecipeFromImage.mutation'
-import { useImportRecipeFromTextMutation } from '../api/importRecipeFromText.mutation'
-import { useImportRecipeFromUrlMutation } from '../api/importRecipeFromUrl.mutation'
+import { client } from '~/lib/orpc'
+
 import RecipeImportImageUpload from './RecipeImportImageUpload.vue'
 
-const emit = defineEmits<{
-  close: [recipeId?: string]
-}>()
-
-const imageId = ref<string | null>(null)
-const importMode = ref<'image' | 'text' | 'url'>('image')
-const importError = ref('')
+const emit = defineEmits<{ close: [jobId?: string] }>()
+const imageIds = ref<string[]>([])
+const mode = ref('image')
 const recipeText = ref('')
-const recipeUrl = ref('')
-const importImageMutation = useImportRecipeFromImageMutation()
-const importTextMutation = useImportRecipeFromTextMutation()
-const importUrlMutation = useImportRecipeFromUrlMutation()
-
-watch(imageId, (value) => {
-  if (value) {
-    importMode.value = 'image'
+const urlText = ref('')
+const uploading = ref(false)
+const busy = ref(false)
+const error = ref('')
+const urls = computed(() => [
+  ...new Set(urlText.value.split(/\s+/).map((url) => url.trim()).filter(Boolean)),
+])
+const invalidUrls = computed(() => urls.value.filter((value) => {
+  try {
+    return ![
+      'http:',
+      'https:',
+    ].includes(new URL(value).protocol)
   }
+  catch {
+    return true
+  }
+}))
+const count = computed(() => {
+  if (mode.value === 'image') {
+    return imageIds.value.length
+  }
+
+  return mode.value === 'url' ? urls.value.length : 1
 })
-watch(recipeText, (value) => {
-  if (value.trim()) {
-    importMode.value = 'text'
-  }
-})
-watch(recipeUrl, (value) => {
-  if (value.trim()) {
-    importMode.value = 'url'
-  }
-})
+const canImport = computed(() => !busy.value && !uploading.value && count.value > 0 && count.value <= 20
+  && (mode.value !== 'url' || invalidUrls.value.length === 0) && (mode.value !== 'text' || recipeText.value.trim().length >= 20))
 
-const isImporting = computed(() => importImageMutation.isLoading.value
-  || importTextMutation.isLoading.value
-  || importUrlMutation.isLoading.value)
-const canImport = computed(() => {
-  if (importMode.value === 'image') {
-    return Boolean(imageId.value)
-  }
-
-  if (importMode.value === 'text') {
-    return recipeText.value.trim().length >= 20
-  }
-
-  return recipeUrl.value.trim().length > 0
-})
-
-async function importRecipe() {
+async function importRecipes() {
   if (!canImport.value) {
     return
   }
 
+  busy.value = true
+  error.value = ''
+
   try {
-    importError.value = ''
-
-    let imported
-
-    if (importMode.value === 'image') {
-      imported = await importImageMutation.mutateAsync({
-        imageId: imageId.value!,
-      })
-    }
-    else if (importMode.value === 'text') {
-      imported = await importTextMutation.mutateAsync({
+    if (mode.value === 'text') {
+      const job = await client.recipes.importRecipeFromText({
         text: recipeText.value.trim(),
       })
+
+      emit('close', job.id)
     }
     else {
-      imported = await importUrlMutation.mutateAsync({
-        url: recipeUrl.value.trim(),
+      const jobs = await client.recipes.queueRecipeImports({
+        imageIds: mode.value === 'image' ? imageIds.value : [],
+        urls: mode.value === 'url' ? urls.value : [],
       })
-    }
 
-    emit('close', imported.id)
+      emit('close', jobs[0]?.id)
+    }
   }
-  catch (error) {
-    importError.value = error instanceof Error
-      ? error.message
-      : 'We could not import that recipe. Please try again.'
+  catch (error_) {
+    error.value = error_ instanceof Error ? error_.message : 'Could not queue your imports. Try again.'
+  }
+  finally {
+    busy.value = false
   }
 }
 </script>
 
 <template>
   <UModal
-    :dismissible="!isImporting"
-    title="Import recipe"
+    :dismissible="!busy && !uploading"
+    :close="busy || uploading ? false : undefined"
+    title="Import recipes"
+    description="Add your sources. Review every draft before it joins your library."
   >
     <template #body>
       <div class="flex flex-col gap-5">
-        <div class="flex flex-col gap-1">
-          <p class="text-sm text-toned">
-            Choose a source. The AI creates a draft with Generic nutrition for every ingredient, ready for you to check.
-          </p>
-        </div>
-
         <UTabs
-          v-model="importMode"
+          v-model="mode"
           :content="false"
-          :items="[
-            { label: 'Image',
-              value: 'image',
-              icon: 'i-lucide-image' },
-            { label: 'Website',
-              value: 'url',
-              icon: 'i-lucide-link' },
-            { label: 'Text',
-              value: 'text',
-              icon: 'i-lucide-align-left' },
-          ]"
-          class="w-full"
+          :items="[{ label: 'Images',
+                     value: 'image',
+                     icon: 'i-lucide-images' }, { label: 'URLs',
+                                                  value: 'url',
+                                                  icon: 'i-lucide-link' }, { label: 'Text',
+                                                                             value: 'text',
+                                                                             icon: 'i-lucide-align-left' }]"
           variant="link"
         />
-
-        <template v-if="importMode === 'image'">
-          <div class="flex flex-col gap-1">
-            <p class="text-sm font-medium text-highlighted">
-              Recipe photo or screenshot
-            </p>
-            <p class="text-xs text-dimmed">
-              Click to choose a file, or paste an image straight from your clipboard.
-            </p>
-          </div>
-          <RecipeImportImageUpload v-model="imageId" />
+        <RecipeImportImageUpload
+          v-show="mode === 'image'"
+          v-model="imageIds"
+          :active="mode === 'image'"
+          :disabled="busy"
+          @uploading="uploading = $event"
+        />
+        <template v-if="mode === 'url'">
+          <UFormField
+            label="Recipe URLs"
+            description="Paste one URL per line. Each URL creates a separate recipe. Up to 20 per batch."
+          >
+            <UTextarea
+              v-model="urlText"
+              :rows="8"
+              :disabled="busy"
+              class="w-full"
+              placeholder="https://example.com/recipe-one&#10;https://example.com/recipe-two"
+            />
+          </UFormField>
+          <p
+            v-if="invalidUrls.length > 0"
+            class="text-sm text-error"
+          >
+            Check {{ invalidUrls.length }} invalid URL(s). Use complete http or https links.
+          </p>
+          <p
+            v-else
+            class="text-xs text-muted"
+          >
+            {{ urls.length }} unique recipe URLs
+          </p>
         </template>
-
-        <template v-else-if="importMode === 'url'">
-          <div class="flex flex-col gap-1">
-            <p class="text-sm font-medium text-highlighted">
-              Recipe website
-            </p>
-            <p class="text-xs text-dimmed">
-              Use a public recipe page with an ingredients list and instructions.
-            </p>
-          </div>
-          <UInput
-            v-model="recipeUrl"
-            :disabled="isImporting"
-            class="w-full"
-            icon="i-lucide-link"
-            type="url"
-            placeholder="https://example.com/recipe"
-          />
-        </template>
-
-        <template v-else>
-          <div class="flex flex-col gap-1">
-            <p class="text-sm font-medium text-highlighted">
-              Recipe text
-            </p>
-            <p class="text-xs text-dimmed">
-              Paste notes, an ingredient list, or the full recipe.
-            </p>
-          </div>
+        <UFormField
+          v-if="mode === 'text'"
+          label="Recipe text"
+          description="Paste one complete recipe, including ingredients and instructions."
+        >
           <UTextarea
             v-model="recipeText"
-            :rows="9"
-            :disabled="isImporting"
+            :rows="8"
+            :disabled="busy"
             class="w-full"
-            placeholder="Paste the recipe here…"
+            placeholder="Paste your recipe…"
           />
-        </template>
-
+        </UFormField>
         <p
-          v-if="importError"
+          v-if="count > 20"
           class="text-sm text-error"
         >
-          {{ importError }}
+          Import up to 20 recipes at a time.
         </p>
-
-        <div class="flex justify-end gap-2">
+        <p
+          v-if="error"
+          role="alert"
+          class="text-sm text-error"
+        >
+          {{ error }}
+        </p>
+        <div
+          class="
+            flex items-center justify-between gap-3 border-t border-default pt-4
+          "
+        >
+          <span class="text-xs text-muted">Drafts appear in Pending imports.</span>
           <UButton
-            :disabled="isImporting"
-            label="Cancel"
-            color="neutral"
-            variant="ghost"
-            @click="emit('close')"
-          />
-          <UButton
-            :disabled="!canImport || isImporting"
-            :loading="isImporting"
-            :label="isImporting ? 'Importing recipe…' : 'Import recipe'"
-            icon="i-lucide-sparkles"
-            @click="importRecipe"
+            :disabled="!canImport"
+            :loading="busy"
+            :label="`Import ${count} ${count === 1 ? 'recipe' : 'recipes'}`"
+            icon="i-lucide-arrow-right"
+            @click="importRecipes"
           />
         </div>
       </div>

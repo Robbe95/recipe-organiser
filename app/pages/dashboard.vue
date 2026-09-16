@@ -1,7 +1,6 @@
 <script setup lang="ts">
 /* eslint-disable @intlify/vue-i18n/no-raw-text */
 import type { DropdownMenuItem } from '@nuxt/ui'
-import { useQueryCache } from '@pinia/colada'
 
 import ConfirmDeleteModal from '~/components/ConfirmDeleteModal.vue'
 import PageHeader from '~/components/page/PageHeader.vue'
@@ -16,7 +15,6 @@ import {
 } from '~/features/recipes/api/recipeOrganization.mutations'
 import RecipeEmptyState from '~/features/recipes/components/RecipeEmptyState.vue'
 import RecipeImportModal from '~/features/recipes/components/RecipeImportModal.vue'
-import { orpc } from '~/lib/orpc'
 
 definePageMeta({
   layout: 'dashboard',
@@ -40,8 +38,6 @@ const deleteRecipeMutation = useDeleteRecipeMutation()
 const overlay = useOverlay()
 const confirmDeleteModal = overlay.create(ConfirmDeleteModal)
 const recipeImportModal = overlay.create(RecipeImportModal)
-const toast = useToast()
-const queryCache = useQueryCache()
 const cuisineOptions = computed(() => Array.from(new Set(recipes.value
   .map((recipe) => recipe.cuisine)
   .filter((cuisine): cuisine is string => Boolean(cuisine)))).sort())
@@ -152,88 +148,7 @@ async function importRecipe() {
     return
   }
 
-  const importToast = toast.add({
-    title: 'Importing recipe',
-    close: false,
-    description: 'This can take a moment. You can keep using the app.',
-    duration: 0,
-    icon: 'i-lucide-loader-circle',
-    ui: {
-      icon: 'animate-spin',
-    },
-  })
-  const events = new EventSource(`/api/recipe-imports/${jobId}`)
-
-  events.addEventListener('import', async (event) => {
-    const result = JSON.parse((event as MessageEvent<string>).data) as {
-      recipeId: string | null
-      error: string | null
-      recipeName: string | null
-      status: string
-    }
-
-    if (result.status === 'review') {
-      events.close()
-      toast.update(importToast.id, {
-        title: 'Import ready for review',
-        actions: [
-          {
-            color: 'primary',
-            label: 'Review import',
-            onClick: () => navigateTo(`/recipes/imports/${jobId}`),
-          },
-        ],
-        close: true,
-        description: 'Review the extracted recipe before adding it to your library.',
-        icon: 'i-lucide-clipboard-check',
-        ui: {
-          icon: '',
-        },
-      })
-    }
-    else if (result.status === 'completed' && result.recipeId && result.recipeName) {
-      events.close()
-      await Promise.all([
-        recipesQuery.refetch(),
-        queryCache.invalidateQueries({
-          key: orpc.recipes.listRecipeFormData.key(),
-        }),
-      ])
-      toast.update(importToast.id, {
-        title: 'Recipe imported',
-        actions: [
-          {
-            color: 'primary',
-            label: `View ${result.recipeName}`,
-            onClick: () => navigateTo(`/recipes/${result.recipeId}/edit`),
-          },
-        ],
-        close: true,
-        description: 'Your editable recipe draft is ready.',
-        icon: 'i-lucide-sparkles',
-        ui: {
-          icon: '',
-        },
-      })
-    }
-    else if (result.status === 'failed') {
-      events.close()
-      toast.update(importToast.id, {
-        title: 'Recipe import failed',
-        close: true,
-        color: 'error',
-        description: result.error || 'We could not import that recipe.',
-        icon: 'i-lucide-circle-alert',
-        ui: {
-          icon: '',
-        },
-      })
-    }
-  })
-
-  events.addEventListener('error', () => {
-    events.close()
-  })
+  await navigateTo(`/recipes/imports/${jobId}`)
 }
 
 function clearFilters() {

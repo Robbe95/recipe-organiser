@@ -26,11 +26,20 @@ const schema = v.object({
 const isLoading = ref(false)
 const errorMessage = ref('')
 const signInMutation = useSignInMutation()
+const runtimeConfig = useRuntimeConfig()
+const localTestCredentials = import.meta.dev
+  ? {
+      email: runtimeConfig.public.localLoginEmail,
+      password: runtimeConfig.public.localLoginPassword,
+    }
+  : {
+      email: '',
+      password: '',
+    }
 
 const form = useForm({
   initialState: {
-    email: '',
-    password: '',
+    ...localTestCredentials,
   },
   schema,
   onSubmit: signIn,

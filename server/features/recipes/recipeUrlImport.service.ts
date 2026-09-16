@@ -49,16 +49,21 @@ function isPrivateAddress(host: string) {
   return host === '::1' || host.startsWith('fc') || host.startsWith('fd') || host.startsWith('fe80:')
 }
 
-function htmlToText(html: string) {
+export function htmlToText(html: string) {
   return html
     .replace(/<script[\s\S]*?<\/script>/gi, ' ')
     .replace(/<style[\s\S]*?<\/style>/gi, ' ')
+    .replace(/<br\s*\/?>/gi, '\n')
+    .replace(/<\/(?:p|div|li|h[1-6]|section)>/gi, '\n\n')
+    .replace(/<li\b[^>]*>/gi, '\n- ')
     .replace(/<[^>]+>/g, ' ')
     .replace(/&nbsp;/gi, ' ')
     .replace(/&amp;/gi, '&')
     .replace(/&quot;/gi, '"')
     .replace(/&#39;/g, '\'')
-    .replace(/\s+/g, ' ')
+    .replace(/&bull;|&#8226;|&#x2022;/gi, '•')
+    .replace(/[^\S\n]+/g, ' ')
+    .replace(/\n{3,}/g, '\n\n')
     .trim()
     .slice(0, maxPageCharacters)
 }
@@ -68,40 +73,32 @@ function schemaValue(value: unknown) {
 }
 
 function schemaList(value: unknown): string[] {
-  if (!Array.isArray(value)) {
-    const text = schemaValue(value)
-
-    return text
-      ? [
-          text,
-        ]
-      : []
+  if (Array.isArray(value)) {
+    return value.flatMap(schemaList)
   }
+  if (value && typeof value === 'object') {
+    const node = value as Record<string, unknown>
+    const text = schemaValue(node.text) || schemaValue(node.name)
 
-  return value.flatMap((item) => {
-    if (typeof item === 'string') {
-      return [
-        item,
+    return [
+      ...(text
+        ? [
+            text,
+          ]
+        : []),
+      ...schemaList(node.itemListElement),
+    ]
+  }
+  const text = schemaValue(value)
+
+  return text
+    ? [
+        text,
       ]
-    }
-    if (item && typeof item === 'object') {
-      const node = item as Record<string, unknown>
-      const text = schemaValue(node.text) || schemaValue(node.name)
-
-      if (text) {
-        return [
-          text,
-        ]
-      }
-
-      return schemaList(node.itemListElement)
-    }
-
-    return []
-  })
+    : []
 }
 
-function recipeSchemaToText(html: string) {
+export function recipeSchemaToText(html: string) {
   const recipes: Array<Record<string, unknown>> = []
   const scripts = html.matchAll(/<script\b([^>]*)>([\s\S]*?)<\/script>/gi)
 
@@ -149,7 +146,7 @@ function recipeSchemaToText(html: string) {
     'Ingredients:',
     ...schemaList(recipe.recipeIngredient).map((item) => `- ${item}`),
     'Instructions:',
-    ...schemaList(recipe.recipeInstructions).map((item, index) => `${index + 1}. ${item}`),
+    ...schemaList(recipe.recipeInstructions).map((item, index) => `${index + 1}. ${htmlToText(item)}`),
   ].filter(Boolean).join('\n')).join('\n\n').trim()
 
   return text || null

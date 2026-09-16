@@ -7,9 +7,11 @@ interface Breadcrumb {
 withDefaults(defineProps<{
   title: string
   breadcrumbs?: ReadonlyArray<Breadcrumb>
+  compact?: boolean
   description: string
 }>(), {
   breadcrumbs: () => [],
+  compact: false,
 })
 </script>
 
@@ -82,7 +84,7 @@ withDefaults(defineProps<{
     </template>
   </Teleport>
 
-  <div class="flex flex-col gap-1">
+  <div :class="compact ? 'sr-only' : 'flex flex-col gap-1'">
     <TextH1 :text="title" />
     <TextP :text="description" />
   </div>

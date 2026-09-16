@@ -51,7 +51,9 @@ export const ingredient = recipesSchema.table('ingredient', {
   createdAt: timestamp('created_at', {
     withTimezone: true,
   }).notNull().defaultNow(),
+  isPantryStaple: boolean('is_pantry_staple').notNull().default(false),
   name: text('name').notNull(),
+  aliases: text('aliases').array().notNull().default([]),
   calorieAmount: doublePrecision('calorie_amount'),
   calories: integer('calories'),
   caloriesPer100g: integer('calories_per_100g'),

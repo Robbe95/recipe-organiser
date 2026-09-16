@@ -1,59 +1,91 @@
 <!-- eslint-disable @intlify/vue-i18n/no-raw-text -->
+<script setup lang="ts">
+/* eslint-disable better-tailwindcss/no-unknown-classes */
+const route = useRoute()
+
+const kitchenTabs = [
+  {
+    icon: 'i-lucide-book-open',
+    label: 'Recipes',
+    to: '/kitchen',
+  },
+  {
+    icon: 'i-lucide-calendar-heart',
+    label: 'Meal plan',
+    to: '/kitchen/meal-plan',
+  },
+  {
+    icon: 'i-lucide-shopping-basket',
+    label: 'Shopping list',
+    to: '/kitchen/shopping-list',
+  },
+]
+
+function isActiveTab(to: string) {
+  return to === '/kitchen'
+    ? route.path === to
+    : route.path.startsWith(to)
+}
+
+const isCookingRoute = computed(() => route.path.startsWith('/kitchen/recipes/'))
+</script>
+
 <template>
-  <div class="flex min-h-dvh flex-col bg-default">
-    <header
+  <div class="kitchen-surface min-h-dvh bg-default">
+    <main
+      :class="isCookingRoute
+        ? ''
+        : `
+          pb-[calc(5.75rem+env(safe-area-inset-bottom))]
+          md:pb-32
+        `"
+    >
+      <slot />
+    </main>
+    <nav
+      v-if="!isCookingRoute"
+      aria-label="Kitchen navigation"
       class="
-        sticky top-0 z-10 border-b border-default bg-default/95 backdrop-blur-sm
+        kitchen-dock fixed inset-x-3 bottom-3 z-20 rounded-2xl border p-1
+        md:inset-x-auto md:bottom-5 md:left-1/2 md:w-120 md:-translate-x-1/2
       "
+      style="margin-bottom: env(safe-area-inset-bottom)"
     >
       <div
         class="
-          mx-auto flex h-16 w-full max-w-7xl items-center justify-between gap-4
-          px-4
-          sm:px-6
+          flex h-14 items-stretch
+          md:h-15
         "
       >
         <NuxtLink
-          to="/kitchen"
-          class="flex items-center gap-2 font-semibold text-highlighted"
+          v-for="tab in kitchenTabs"
+          :key="tab.to"
+          :to="tab.to"
+          :class="isActiveTab(tab.to)
+            ? 'kitchen-dock-active text-primary'
+            : `
+              text-muted
+              hover:text-highlighted
+            `"
+          class="
+            flex min-w-0 flex-1 flex-col items-center justify-center gap-1
+            rounded-xl px-3 text-[0.65rem] font-semibold transition-all
+            duration-200
+            active:scale-[0.97]
+            md:flex-row md:gap-2.5 md:px-4 md:text-sm
+          "
         >
-          <span
+          <UIcon
+            :name="tab.icon"
+            :class="isActiveTab(tab.to) ? 'fill-primary/10' : ''"
             class="
-              grid size-9 place-items-center rounded-xl bg-primary text-inverted
+              size-5
+              md:size-5
             "
-          >
-            <UIcon
-              name="i-lucide-chef-hat"
-              class="size-5"
-            />
-          </span>
-          Kitchen
+          />
+          <span class="whitespace-nowrap">{{ tab.label }}</span>
         </NuxtLink>
-        <div class="flex shrink-0 items-center gap-2">
-          <UButton
-            to="/dashboard"
-            label="Manage recipes"
-            icon="i-lucide-pencil"
-            color="neutral"
-            variant="ghost"
-            class="
-              hidden
-              sm:inline-flex
-            "
-          />
-          <UButton
-            to="/dashboard"
-            icon="i-lucide-pencil"
-            color="neutral"
-            variant="ghost"
-            aria-label="Manage recipes"
-            class="sm:hidden"
-          />
-        </div>
       </div>
-    </header>
-    <main class="flex-1">
-      <slot />
-    </main>
+    </nav>
   </div>
 </template>

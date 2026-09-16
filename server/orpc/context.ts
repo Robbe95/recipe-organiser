@@ -7,6 +7,7 @@ export interface ORPCContext {
     readonly name: string
     readonly email: string
   } | null
+  readonly waitUntil?: (promise: Promise<unknown>) => void
 }
 
 export async function createORPCContext(request: Request): Promise<ORPCContext> {

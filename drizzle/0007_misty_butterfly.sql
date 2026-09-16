@@ -1,0 +1,1 @@
+ALTER TABLE "recipes"."ingredient" ADD COLUMN "is_pantry_staple" boolean DEFAULT false NOT NULL;
