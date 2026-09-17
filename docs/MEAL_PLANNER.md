@@ -391,3 +391,6 @@ excellent.
 - Added back only a safe content-level transition: the fixed card shell never
   moves, while its keyed instruction content gets a short non-bouncy fade and
   rise when a different step is selected. Timer updates cannot retrigger it.
+- Replaced the old green PWA mark with the same cyan app accent and Lucide chef
+  hat used throughout Kitchen. The reusable app logo component now uses that
+  same compact mark as well.
