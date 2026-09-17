@@ -1,6 +1,7 @@
 import { useMutation } from '@pinia/colada'
 
 import { authClient } from '~/lib/authClient'
+import { isKitchenHost } from '~/utils/kitchenHost'
 
 interface SignInCredentials {
   email: string
@@ -12,7 +13,9 @@ export function useSignInMutation() {
     mutation: (credentials: SignInCredentials) =>
       authClient.signIn.email({
         ...credentials,
-        callbackURL: '/dashboard',
+        callbackURL: import.meta.client && isKitchenHost(window.location.hostname)
+          ? '/kitchen'
+          : '/dashboard',
       }),
   })
 }

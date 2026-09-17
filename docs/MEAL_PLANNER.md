@@ -323,3 +323,15 @@ excellent.
 - Fixed narrow-phone Kitchen ingredient rows: ingredient names now take their
   own line and amount, variant, live-weight, and add-variant controls wrap
   cleanly below instead of overlapping or compressing each other.
+- Added the Kitchen host entry behaviour: an authenticated visit to
+  `kitchen.robbevaes.com/` goes straight to `/kitchen`, and management-app
+  routes on that hostname are redirected into Kitchen. Signed-out visitors
+  remain at the root sign-in screen, then land in Kitchen after authentication.
+- Cut recurring Vercel Blob Simple Operations for recipe images. Newly
+  processed images now save the stable Blob URLs returned during upload; list
+  and detail reads use those persisted URLs instead of resolving each variant
+  again. Existing image records fill their URL cache once on their next read.
+- Hardened server-side image optimisation for real phone photos: pixel crops
+  are clamped after rounding, and WebP variants are produced sequentially to
+  keep serverless memory usage predictable instead of running four Sharp
+  transforms concurrently.

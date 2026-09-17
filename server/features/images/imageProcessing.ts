@@ -33,11 +33,16 @@ export interface ImageCrop {
 }
 
 function toPixels(crop: ImageCrop, width: number, height: number) {
+  const cropWidth = Math.min(width, Math.max(1, Math.round(crop.width * width)))
+  const cropHeight = Math.min(height, Math.max(1, Math.round(crop.height * height)))
+
   return {
-    height: Math.max(1, Math.round(crop.height * height)),
-    left: Math.max(0, Math.round(crop.x * width)),
-    top: Math.max(0, Math.round(crop.y * height)),
-    width: Math.max(1, Math.round(crop.width * width)),
+    height: cropHeight,
+    // Clamp after rounding as well. A browser crop can be mathematically inside
+    // the image while its rounded pixel values land one pixel outside it.
+    left: Math.min(width - cropWidth, Math.max(0, Math.round(crop.x * width))),
+    top: Math.min(height - cropHeight, Math.max(0, Math.round(crop.y * height))),
+    width: cropWidth,
   }
 }
 
@@ -73,10 +78,14 @@ export async function processImage(input: {
   const keys = {} as Record<ImageVariant, string>
   const urls = {} as Record<ImageVariant, string>
 
-  await Promise.all(variants.map(async ([
+  // Processing a full-resolution phone image in four parallel Sharp pipelines
+  // can exceed a serverless function's memory budget. Keep the pipeline calm
+  // and predictable; the source buffer is shared and each variant is written
+  // before the next one begins.
+  for (const [
     name,
     dimensions,
-  ]) => {
+  ] of variants) {
     const key = `${input.keyPrefix}/${name}.webp`
     const body = await source
       .clone()
@@ -97,7 +106,7 @@ export async function processImage(input: {
 
     keys[name] = key
     urls[name] = blob.url
-  }))
+  }
 
   const fullKey = `${input.keyPrefix}/full.webp`
 

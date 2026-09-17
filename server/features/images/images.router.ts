@@ -63,11 +63,14 @@ function assertOwnTemporaryKey(userId: string, imageId: string, sourceKey: strin
   }
 }
 
+type ImageVariantName = 'desktop' | 'full' | 'mobile' | 'tablet' | 'thumbnail'
+type ImageVariantUrls = Record<ImageVariantName, string>
+
 async function resolveVariantUrls(image: {
   id: string
-  variantKeys: Record<'desktop' | 'full' | 'mobile' | 'tablet' | 'thumbnail', string>
-  variantUrls: Partial<Record<'desktop' | 'full' | 'mobile' | 'tablet' | 'thumbnail', string>> | null
-}) {
+  variantKeys: Record<ImageVariantName, string>
+  variantUrls: Partial<ImageVariantUrls> | null
+}): Promise<ImageVariantUrls> {
   if (
     image.variantUrls?.desktop
     && image.variantUrls.full
@@ -75,7 +78,7 @@ async function resolveVariantUrls(image: {
     && image.variantUrls.tablet
     && image.variantUrls.thumbnail
   ) {
-    return image.variantUrls
+    return image.variantUrls as ImageVariantUrls
   }
 
   const variantUrls = Object.fromEntries(await Promise.all(
@@ -86,7 +89,7 @@ async function resolveVariantUrls(image: {
       name,
       await createReadUrl(key),
     ]),
-  )) as Record<'desktop' | 'full' | 'mobile' | 'tablet' | 'thumbnail', string>
+  )) as ImageVariantUrls
 
   await db.update(imageAsset).set({
     variantUrls,
@@ -126,12 +129,19 @@ const completeUpload = protectedProcedure
   }) => {
     assertOwnTemporaryKey(context.user.id, input.id, input.sourceKey)
 
+    let stage = 'reading the uploaded file'
+
     try {
+      stage = 'creating image variants'
+
       const processed = await processImage({
         crop: input.crop,
         image: await readObject(input.sourceKey),
         keyPrefix: `recipes/${context.user.id}/images/${input.id}`,
       })
+
+      stage = 'saving image metadata'
+
       const image = await db.insert(imageAsset).values({
         id: input.id,
         createdById: context.user.id,
@@ -148,7 +158,13 @@ const completeUpload = protectedProcedure
       return image[0]
     }
     catch (error) {
-      console.error('Unable to process recipe image.', error)
+      console.error('Unable to process recipe image.', {
+        imageId: input.id,
+        contentType: input.contentType,
+        error,
+        sourceKey: input.sourceKey,
+        stage,
+      })
 
       throw new ORPCError('BAD_REQUEST', {
         message: 'We could not process that image. Please try a different file.',

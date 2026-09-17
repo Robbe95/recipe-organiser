@@ -1,4 +1,5 @@
 import { authClient } from '~/lib/authClient'
+import { isKitchenHost } from '~/utils/kitchenHost'
 
 export default defineNuxtRouteMiddleware(async () => {
   const session = authClient.useSession()
@@ -21,6 +22,10 @@ export default defineNuxtRouteMiddleware(async () => {
   }
 
   if (session.value.data) {
-    return navigateTo('/dashboard')
+    const destination = isKitchenHost(useRequestURL().hostname)
+      ? '/kitchen'
+      : '/dashboard'
+
+    return navigateTo(destination)
   }
 })

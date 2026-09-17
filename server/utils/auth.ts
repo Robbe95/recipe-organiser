@@ -24,6 +24,7 @@ export const auth = betterAuth({
   baseURL: {
     allowedHosts: [
       '*.robbevaes.com',
+      'localhost:3000',
     ],
 
   },

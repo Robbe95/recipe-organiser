@@ -7,6 +7,7 @@ import {
   toFormField,
   toInputField,
 } from '~/lib/formango'
+import { isKitchenHost } from '~/utils/kitchenHost'
 
 import { useSignInMutation } from '../api/signIn.mutation'
 
@@ -65,8 +66,7 @@ async function signIn(data: v.InferOutput<typeof schema>) {
       = 'We could not sign you in. Check your email and password and try again.'
   }
   else {
-    const isKitchenDomain = requestUrl.hostname.startsWith('kitchen.')
-    const targetPath = isKitchenDomain ? '/kitchen' : '/dashboard'
+    const targetPath = isKitchenHost(requestUrl.hostname) ? '/kitchen' : '/dashboard'
 
     await navigateTo(targetPath)
   }
