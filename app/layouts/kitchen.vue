@@ -28,10 +28,41 @@ function isActiveTab(to: string) {
 }
 
 const isCookingRoute = computed(() => route.path.startsWith('/kitchen/recipes/'))
+
+function preventPinchZoom(event: TouchEvent) {
+  if (event.touches.length > 1) {
+    event.preventDefault()
+  }
+}
+
+function preventGestureZoom(event: Event) {
+  event.preventDefault()
+}
+
+onMounted(() => {
+  document.addEventListener('touchmove', preventPinchZoom, {
+    passive: false,
+  })
+  document.addEventListener('gesturestart', preventGestureZoom)
+})
+
+onBeforeUnmount(() => {
+  document.removeEventListener('touchmove', preventPinchZoom)
+  document.removeEventListener('gesturestart', preventGestureZoom)
+})
+
+useHead({
+  meta: [
+    {
+      name: 'viewport',
+      content: 'width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover',
+    },
+  ],
+})
 </script>
 
 <template>
-  <div class="kitchen-surface min-h-dvh bg-default">
+  <div class="kitchen-surface min-h-dvh touch-pan-x touch-pan-y bg-default">
     <main
       :class="isCookingRoute
         ? ''

@@ -335,3 +335,59 @@ excellent.
   are clamped after rounding, and WebP variants are produced sequentially to
   keep serverless memory usage predictable instead of running four Sharp
   transforms concurrently.
+- Simplified the active Kitchen cooking screen into a fixed app viewport: the
+  ingredient and instruction areas scroll locally only when needed, while the
+  header and navigation controls stay in view. Removed the redundant “Up
+  next” and manual “Mark complete” affordances; advancing a step records it as
+  complete. Timer steps now present a large, pinned primary action. Kitchen
+  also requests a non-zooming mobile viewport for a steadier installed-PWA
+  feel.
+- Refined the cooking workspace after live use: restored the compact,
+  scroll-contained desktop step rail; made the Ingredients overview a clear
+  but restrained primary utility; and removed the image-heavy cook-start hero
+  in favour of a compact recipe summary. Running timers now retain and show
+  their step instruction, timer actions are substantial without dominating the
+  screen, and ingredient weights can be edited directly in the overview. A
+  unit-only `amount` is now intentionally blank rather than rendered as the
+  meaningless word “amount”.
+- Kept timer status intentionally single-surface per device: the sidebar holds
+  the full timer state on tablet/desktop, while a compact strip is used only
+  on phones where the sidebar is not available. Added an iOS gesture-level
+  pinch zoom lock in Kitchen mode in addition to the viewport configuration.
+- Promoted the editable servings value into a persistent, high-contrast
+  Kitchen control that remains visible before and during cooking.
+- Cooking instruction cards now size to their actual content rather than
+  stretching to fill the available screen height. Long directions remain
+  locally scrollable, while short directions sit in a compact focused card.
+- Replaced the single instruction card with an iOS-picker-inspired active
+  cooking queue: the current instruction is anchored in a fixed center focus
+  plane while surrounding steps glide and fade past it on navigation. Controls
+  remain anchored, and the floating sidebar remains the compact navigator and
+  timer home.
+- Tuned the cooking queue for real recipes with short and long directions:
+  the focused item now owns its own content-sized, locally scrollable card,
+  while neighbouring items are deliberately brief faded previews placed well
+  outside it. Navigation uses a spring transition, so the fixed page stays put
+  while the step wheel glides into its next centered state.
+- Reworked that queue into a measured internal rail rather than using a fixed
+  translation distance. It calculates the active card's actual geometry after
+  layout, centres it in the clipped rail, and uses native smooth scrolling for
+  transitions. Direct user scrolling is locked; navigation controls and the
+  sidebar are the intentional ways to move between steps.
+- Replaced the experimental scroll-centering implementation with a structural
+  three-lane cooking stage. Equal flexible lanes above and below the active
+  card keep its midpoint mathematically centered at every step, including the
+  first and last. The two preview lanes remain clipped and faded, while the
+  active card uses Motion enter/exit spring transitions.
+- Removed the spring-driven preview animations after timer-driven reactive
+  updates could replay their motion. Preview opacity is now a quiet CSS
+  transition; only a single, non-bouncy Motion transition runs when the active
+  step itself changes.
+- Rebuilt the active step one more time with no step-level animation engine at
+  all: a stable centered card is updated atomically, while the surrounding
+  preview lanes only use CSS opacity. This intentionally prioritises a
+  rock-solid cooking surface over motion until a transition can be added
+  without affecting layout or scroll state.
+- Added back only a safe content-level transition: the fixed card shell never
+  moves, while its keyed instruction content gets a short non-bouncy fade and
+  rise when a different step is selected. Timer updates cannot retrigger it.

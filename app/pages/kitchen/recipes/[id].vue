@@ -34,6 +34,23 @@ const recipe = computed(() => recipeQuery.data.value)
 const phase = ref<'complete' | 'ingredients' | 'steps'>('ingredients')
 const stepIndex = ref(0)
 const completedStepIndexes = ref<number[]>([])
+const stepContentInitial = {
+  opacity: 0,
+  y: 10,
+}
+const stepContentAnimate = {
+  opacity: 1,
+  y: 0,
+}
+const stepContentTransition = {
+  duration: 0.22,
+  ease: [
+    0.22,
+    1,
+    0.36,
+    1,
+  ],
+}
 const now = ref(Date.now())
 const ingredientsDrawerOpen = ref(false)
 const selectedIngredientType = ref<string | null>(null)
@@ -58,6 +75,7 @@ const activeTimers = ref<Array<{
   id: string
   startedAt: number
   durationSeconds: number
+  instruction?: string
   label: string
   pausedRemaining?: number
 }>>([])
@@ -86,7 +104,6 @@ let wakeLock: WakeLockSentinel | undefined
 let visibilityHandler: (() => void) | undefined
 
 const currentStep = computed(() => recipe.value?.steps[stepIndex.value])
-const nextStep = computed(() => recipe.value?.steps[stepIndex.value + 1])
 const portionMultiplier = computed(() => {
   const defaultPortions = recipe.value?.defaultPortions || 1
   const portions = cookingPortions.value || defaultPortions
@@ -192,7 +209,7 @@ const cookingIngredientUsage = computed(() => recipe.value?.ingredients.map((ing
 
 function formatAmount(amount: number | null, unit: string | null) {
   if (amount === null) {
-    return unit || ''
+    return unit === 'amount' ? '' : unit || ''
   }
 
   return `${amount} ${unit || ''}`.trim()
@@ -383,8 +400,17 @@ function startTimer() {
     id: currentStep.value.id,
     startedAt: Date.now(),
     durationSeconds: currentStep.value.durationSeconds,
+    instruction: formatRecipeInstruction(currentStep.value.instruction),
     label: `Step ${stepIndex.value + 1}`,
   })
+}
+
+function goToStep(index: number) {
+  if (!recipe.value) {
+    return
+  }
+
+  stepIndex.value = Math.max(0, Math.min(index, recipe.value.steps.length - 1))
 }
 
 function next() {
@@ -398,16 +424,15 @@ function next() {
       stepIndex.value,
     ]),
   ]
-  stepIndex.value += 1
+  goToStep(stepIndex.value + 1)
 }
 
-function toggleStepComplete(index: number) {
-  completedStepIndexes.value = completedStepIndexes.value.includes(index)
-    ? completedStepIndexes.value.filter((item) => item !== index)
-    : [
-        ...completedStepIndexes.value,
-        index,
-      ]
+function stepWheelOpacity(index: number) {
+  if (index === stepIndex.value) {
+    return 1
+  }
+
+  return Math.max(0, 0.42 - (Math.abs(index - stepIndex.value) - 1) * 0.12)
 }
 
 async function requestWakeLock() {
@@ -473,7 +498,7 @@ function removeTimer(timerId: string) {
 
 function previous() {
   if (stepIndex.value > 0) {
-    stepIndex.value -= 1
+    goToStep(stepIndex.value - 1)
   }
 }
 
@@ -604,7 +629,8 @@ onBeforeUnmount(() => {
   <div
     v-else
     class="
-      mx-auto flex min-h-dvh w-full max-w-2xl flex-col gap-5 px-5 py-4
+      mx-auto flex h-dvh w-full max-w-2xl flex-col gap-4 overflow-hidden px-5
+      py-4
       sm:px-6
       md:max-w-6xl md:px-8 md:py-6
     "
@@ -618,67 +644,70 @@ onBeforeUnmount(() => {
         color="neutral"
         variant="ghost"
       />
-      <span
-        v-if="phase === 'steps'"
-        class="min-w-0 truncate font-semibold text-highlighted"
-      >{{ recipe.name }}</span>
-      <div
-        v-else
-        class="flex items-center gap-2 text-sm text-toned"
-      >
-        <span>Serves</span>
-        <UInput
-          v-model.number="cookingPortions"
-          type="number"
-          min="1"
-          step="1"
-          class="w-18"
-          aria-label="Portions"
-        />
+      <div class="flex min-w-0 items-center gap-3">
+        <span
+          v-if="phase === 'steps'"
+          class="min-w-0 truncate font-semibold text-highlighted"
+        >{{ recipe.name }}</span>
+        <div
+          class="
+            flex shrink-0 items-center gap-2 rounded-2xl border
+            border-primary/20 bg-primary/10 py-1.5 pr-1.5 pl-2.5
+          "
+        >
+          <UIcon
+            name="i-lucide-users-round"
+            class="size-4 text-primary"
+          />
+          <span class="text-sm font-semibold text-highlighted">Serves</span>
+          <UInput
+            v-model.number="cookingPortions"
+            type="number"
+            min="1"
+            step="1"
+            size="sm"
+            class="w-13"
+            aria-label="Servings"
+          />
+        </div>
       </div>
     </div>
 
     <section
       v-if="phase === 'ingredients'"
-      class="flex flex-col gap-6"
+      class="flex min-h-0 flex-1 flex-col gap-4 overflow-hidden"
     >
       <div
         class="
-          overflow-hidden rounded-3xl bg-elevated shadow-sm ring-1 ring-default
+          rounded-3xl bg-elevated p-5 shadow-sm ring-1 ring-default
+          sm:p-6
         "
       >
-        <img
-          v-if="recipe.image"
-          :src="recipe.image.url"
-          :alt="recipe.name"
-          class="
-            h-48 w-full object-cover
-            sm:h-64
-          "
-        >
-        <div
-          class="
-            flex flex-col gap-3 p-6
-            sm:p-8
-          "
-        >
-          <h1
-            class="
-              text-3xl font-semibold tracking-tight text-highlighted
-              sm:text-4xl
-            "
-          >
-            {{ recipe.name }}
-          </h1>
-          <p
-            v-if="recipe.description"
-            class="max-w-2xl text-lg text-toned"
-          >
-            {{ recipe.description }}
-          </p>
+        <div class="flex items-start justify-between gap-4">
+          <div class="flex min-w-0 flex-col gap-1.5">
+            <span class="text-sm font-medium text-primary">Ready to cook</span>
+            <h1
+              class="
+                text-2xl font-semibold tracking-tight text-highlighted
+                sm:text-3xl
+              "
+            >
+              {{ recipe.name }}
+            </h1>
+            <p
+              v-if="recipe.description"
+              class="
+                max-w-2xl text-sm text-toned
+                sm:text-base
+              "
+            >
+              {{ recipe.description }}
+            </p>
+          </div>
+          <span class="shrink-0 text-sm text-toned">{{ recipe.steps.length }} steps</span>
         </div>
       </div>
-      <div class="flex flex-col gap-3">
+      <div class="flex min-h-0 flex-1 flex-col gap-3">
         <div
           class="
             flex flex-col items-start gap-1
@@ -690,107 +719,112 @@ onBeforeUnmount(() => {
           </h2>
           <span class="text-sm text-toned">Check everything before you start</span>
         </div>
-        <div class="flex flex-col gap-4">
-          <section
-            v-for="section in ingredientSections"
-            :key="section.id"
-            class="flex flex-col gap-4"
-          >
-            <h3 class="font-medium text-highlighted">
-              {{ section.name }}
-            </h3>
+        <div class="min-h-0 flex-1 overflow-y-auto overscroll-contain pr-1">
+          <div class="flex flex-col gap-4 pb-2">
             <section
-              v-for="category in section.categories"
-              :key="category.id"
-              class="flex flex-col gap-2"
+              v-for="section in ingredientSections"
+              :key="section.id"
+              class="flex flex-col gap-4"
             >
-              <div class="flex items-center gap-2 px-1">
-                <UIcon
-                  :name="category.icon"
-                  class="size-4 text-primary"
-                />
-                <h4 class="text-sm font-medium text-toned">
-                  {{ category.name }}
-                </h4>
-              </div>
-              <div class="overflow-hidden rounded-2xl border border-default">
-                <div
-                  v-for="ingredient in category.items"
-                  :key="ingredient.id"
-                  class="
-                    flex flex-col gap-3 border-b border-default px-4 py-3
-                    last:border-b-0
-                  "
-                >
+              <h3 class="font-medium text-highlighted">
+                {{ section.name }}
+              </h3>
+              <section
+                v-for="category in section.categories"
+                :key="category.id"
+                class="flex flex-col gap-2"
+              >
+                <div class="flex items-center gap-2 px-1">
+                  <UIcon
+                    :name="category.icon"
+                    class="size-4 text-primary"
+                  />
+                  <h4 class="text-sm font-medium text-toned">
+                    {{ category.name }}
+                  </h4>
+                </div>
+                <div class="overflow-hidden rounded-2xl border border-default">
                   <div
+                    v-for="ingredient in category.items"
+                    :key="ingredient.id"
                     class="
-                      flex flex-col gap-3
-                      sm:flex-row sm:items-center sm:justify-between sm:gap-4
+                      flex flex-col gap-3 border-b border-default px-4 py-3
+                      last:border-b-0
                     "
                   >
-                    <div class="flex min-w-0 items-center gap-3">
-                      <span class="size-2 shrink-0 rounded-full bg-primary" />
-                      <span
-                        :class="ingredient.isOptional ? 'text-toned' : `
-                          text-highlighted
-                        `"
-                      >{{ ingredient.name }}</span>
-                      <span
-                        v-if="ingredient.isOptional"
-                        class="text-xs text-toned"
-                      >optional</span>
-                    </div>
                     <div
                       class="
-                        flex flex-wrap items-center gap-2
-                        sm:shrink-0 sm:flex-nowrap
+                        flex flex-col gap-3
+                        sm:flex-row sm:items-center sm:justify-between sm:gap-4
                       "
                     >
-                      <span class="font-medium text-highlighted">{{ formatAmount(scaledAmount(ingredient.amount), ingredient.unit) }}</span>
-                      <USelectMenu
-                        v-if="ingredient.variants.length > 1"
-                        v-model="cookingInput(ingredient).variantId"
-                        :items="ingredient.variants"
-                        value-key="id"
-                        label-key="name"
-                        class="
-                          w-full
-                          sm:w-52
-                        "
-                      />
-                      <div
-                        v-if="ingredient.requiresWeight"
-                        class="flex items-center gap-1"
-                      >
-                        <UInput
-                          v-model.number="cookingInput(ingredient).weight"
-                          type="number"
-                          min="0"
-                          step="any"
-                          placeholder="Weight"
-                          class="w-28"
-                          aria-label="Actual weight in grams"
-                        />
-                        <span class="text-sm text-toned">g</span>
+                      <div class="flex min-w-0 items-center gap-3">
+                        <span class="size-2 shrink-0 rounded-full bg-primary" />
+                        <span
+                          :class="ingredient.isOptional ? 'text-toned' : `
+                            text-highlighted
+                          `"
+                        >{{ ingredient.name }}</span>
+                        <span
+                          v-if="ingredient.isOptional"
+                          class="text-xs text-toned"
+                        >optional</span>
                       </div>
-                      <UButton
-                        label="Add variant"
-                        icon="i-lucide-plus"
-                        color="neutral"
-                        variant="ghost"
-                        size="sm"
-                        @click="addIngredientVariant(ingredient)"
-                      />
+                      <div
+                        class="
+                          flex flex-wrap items-center gap-2
+                          sm:shrink-0 sm:flex-nowrap
+                        "
+                      >
+                        <span
+                          v-if="formatAmount(scaledAmount(ingredient.amount), ingredient.unit)"
+                          class="font-medium text-highlighted"
+                        >{{ formatAmount(scaledAmount(ingredient.amount), ingredient.unit) }}</span>
+                        <USelectMenu
+                          v-if="ingredient.variants.length > 1"
+                          v-model="cookingInput(ingredient).variantId"
+                          :items="ingredient.variants"
+                          value-key="id"
+                          label-key="name"
+                          class="
+                            w-full
+                            sm:w-52
+                          "
+                        />
+                        <div
+                          v-if="ingredient.requiresWeight"
+                          class="flex items-center gap-1"
+                        >
+                          <UInput
+                            v-model.number="cookingInput(ingredient).weight"
+                            type="number"
+                            min="0"
+                            step="any"
+                            placeholder="Weight"
+                            class="w-28"
+                            aria-label="Actual weight in grams"
+                          />
+                          <span class="text-sm text-toned">g</span>
+                        </div>
+                        <UButton
+                          label="Add variant"
+                          icon="i-lucide-plus"
+                          color="neutral"
+                          variant="ghost"
+                          size="sm"
+                          @click="addIngredientVariant(ingredient)"
+                        />
+                      </div>
                     </div>
                   </div>
                 </div>
-              </div>
+              </section>
             </section>
-          </section>
+          </div>
         </div>
       </div>
       <div
-        class="sticky bottom-0 -mx-5 bg-default/90 px-5 py-3 backdrop-blur-xl"
+        class="-mx-5 shrink-0 bg-default/90 px-5 py-3 backdrop-blur-xl"
       >
         <UButton
           label="Start cooking"
@@ -806,11 +840,11 @@ onBeforeUnmount(() => {
     <section
       v-else-if="phase === 'steps'"
       class="
-        grid flex-1 gap-5
+        grid min-h-0 flex-1 gap-4
         md:grid-cols-[minmax(0,1fr)_18rem]
       "
     >
-      <div class="flex min-w-0 flex-col gap-5">
+      <div class="flex min-h-0 min-w-0 flex-1 flex-col gap-4 overflow-hidden">
         <div class="flex items-center justify-between gap-3 text-sm text-toned">
           <span>Step {{ stepIndex + 1 }} of {{ recipe.steps.length }}</span>
           <div class="flex items-center gap-2">
@@ -820,118 +854,128 @@ onBeforeUnmount(() => {
             >{{ cookingCalories }} kcal total</span>
             <UButton
               label="Ingredients"
-              color="neutral"
-              variant="ghost"
+              icon="i-lucide-list-checks"
+              color="primary"
+              variant="soft"
               size="sm"
               @click="ingredientsDrawerOpen = true"
             />
           </div>
         </div>
-        <AnimatePresence mode="popLayout">
-          <Motion
-            :key="currentStep?.id"
-            :initial="{ opacity: 0,
-                        y: 16 }"
-            :animate="{ opacity: 1,
-                        y: 0 }"
-            :exit="{ opacity: 0,
-                     y: -16 }"
-            :transition="{ duration: 0.22,
-                           ease: 'easeOut' }"
+        <div
+          class="
+            grid min-h-0 flex-1 grid-rows-[minmax(0,1fr)_auto_minmax(0,1fr)]
+            overflow-hidden
+          "
+        >
+          <div
             class="
-              flex flex-2 flex-col justify-between gap-5 rounded-3xl bg-elevated
-              p-6 shadow-sm ring-1 ring-default
-              sm:min-h-128 sm:p-10
+              min-h-0 overflow-hidden
+              mask-[linear-gradient(to_bottom,transparent,black_70%)] pt-3
+              [-webkit-mask-image:linear-gradient(to_bottom,transparent,black_70%)]
             "
           >
-            <div class="flex flex-col gap-5">
-              <div class="flex items-center gap-2 text-primary">
+            <div class="flex h-full flex-col justify-end gap-3">
+              <div
+                v-for="(step, index) in recipe.steps.slice(0, stepIndex)"
+                :key="step.id"
+                :style="{ opacity: stepWheelOpacity(index) }"
+                class="
+                  flex flex-col gap-1 rounded-2xl px-6 py-3 transition-opacity
+                  duration-200
+                  sm:px-8
+                "
+              >
+                <span class="text-xs font-medium text-toned">Step {{ index + 1 }}</span>
+                <p class="line-clamp-1 text-base/6 text-toned">
+                  {{ formatRecipeInstruction(step.instruction) }}
+                </p>
+              </div>
+            </div>
+          </div>
+
+          <section
+            class="
+              max-h-[min(24rem,52dvh)] overflow-y-auto rounded-3xl bg-elevated
+              px-6 py-4 shadow-sm ring-1 ring-default
+              sm:px-8 sm:py-5
+            "
+          >
+            <Motion
+              :key="currentStep?.id"
+              :initial="stepContentInitial"
+              :animate="stepContentAnimate"
+              :transition="stepContentTransition"
+              class="flex flex-col gap-4"
+            >
+              <div
+                class="flex items-center gap-2 text-sm font-medium text-primary"
+              >
                 <UIcon
                   name="i-lucide-chef-hat"
-                  class="size-5"
+                  class="size-4"
                 />
-                <span class="text-sm font-medium">Current step</span>
+                <span>Current step</span>
               </div>
               <p
                 class="
-                  max-w-4xl text-xl/8 font-medium wrap-break-word
-                  whitespace-pre-line text-highlighted
-                  sm:text-4xl/12
+                  text-xl/8 font-medium wrap-break-word whitespace-pre-line
+                  text-highlighted
+                  sm:text-3xl/10
                 "
               >
-                {{ formatRecipeInstruction(currentStep?.instruction || '') }}
+                {{ currentStep ? formatRecipeInstruction(currentStep.instruction) : '' }}
               </p>
-            </div>
-            <div class="flex flex-wrap items-center gap-2">
               <UButton
                 v-if="currentStep?.type === 'timer' && currentStep.durationSeconds"
                 :disabled="activeTimers.some((timer) => timer.id === currentStep?.id)"
                 :label="activeTimers.some((timer) => timer.id === currentStep?.id) ? 'Timer running' : `Start ${formatTime(currentStep.durationSeconds)} timer`"
                 icon="i-lucide-timer"
-                class="
-                  rounded-full px-4
-                  sm:px-5
-                "
+                class="min-h-12 self-start rounded-xl"
+                size="lg"
                 @click="startTimer"
               />
-              <UButton
-                :label="completedStepIndexes.includes(stepIndex) ? 'Completed' : 'Mark complete'"
-                :icon="completedStepIndexes.includes(stepIndex) ? 'i-lucide-check' : 'i-lucide-circle-check'"
-                color="neutral"
-                variant="soft"
+            </Motion>
+          </section>
+
+          <div
+            class="
+              min-h-0 overflow-hidden
+              mask-[linear-gradient(to_bottom,black_30%,transparent)] pb-3
+              [-webkit-mask-image:linear-gradient(to_bottom,black_30%,transparent)]
+            "
+          >
+            <div class="flex flex-col gap-3">
+              <div
+                v-for="(step, previewIndex) in recipe.steps.slice(stepIndex + 1)"
+                :key="step.id"
+                :style="{ opacity: stepWheelOpacity(stepIndex + previewIndex + 1) }"
                 class="
-                  rounded-full px-4
-                  sm:px-5
-                "
-                @click="toggleStepComplete(stepIndex)"
-              />
-            </div>
-          </Motion>
-        </AnimatePresence>
-        <div class="flex flex-col gap-3">
-          <AnimatePresence mode="popLayout">
-            <Motion
-              v-if="nextStep"
-              :key="nextStep.id"
-              :animate="{ opacity: 0.65,
-                          y: 0 }"
-              :exit="{ opacity: 0,
-                       y: -12 }"
-              :initial="{ opacity: 0,
-                          y: 12 }"
-              :transition="{ duration: 0.2,
-                             ease: 'easeOut' }"
-              class="
-                flex min-h-32 flex-1 flex-col justify-center gap-2 rounded-3xl
-                bg-elevated/90 p-6 shadow-sm backdrop-blur-sm
-              "
-            >
-              <p class="text-xs font-medium tracking-wide text-toned uppercase">
-                Up next
-              </p>
-              <p
-                class="
-                  line-clamp-3 text-lg whitespace-pre-line text-highlighted
+                  flex flex-col gap-1 rounded-2xl px-6 py-3 transition-opacity
+                  duration-200
+                  sm:px-8
                 "
               >
-                {{ formatRecipeInstruction(nextStep.instruction) }}
-              </p>
-            </Motion>
-          </AnimatePresence>
+                <span class="text-xs font-medium text-toned">Step {{ stepIndex + previewIndex + 2 }}</span>
+                <p class="line-clamp-1 text-base/6 text-toned">
+                  {{ formatRecipeInstruction(step.instruction) }}
+                </p>
+              </div>
+            </div>
+          </div>
         </div>
         <div
           class="
-            sticky bottom-0 z-10 -mx-5 -mb-4 flex flex-col gap-0 bg-default/90
-            px-5 pt-2 pb-[max(1rem,env(safe-area-inset-bottom))]
-            backdrop-blur-xl
-            md:static md:mx-0 md:mb-0 md:flex-row md:items-center
-            md:justify-between md:bg-transparent md:p-0 md:backdrop-blur-none
+            -mx-5 -mb-4 flex shrink-0 flex-col gap-0 bg-default/90 px-5 pt-2
+            pb-[max(1rem,env(safe-area-inset-bottom))] backdrop-blur-xl
+            md:mx-0 md:mb-0 md:bg-transparent md:p-0 md:backdrop-blur-none
           "
         >
           <div
             v-if="timerCards.length > 0"
             class="
-              flex flex-col gap-0 border-b border-default py-1
+              flex max-h-22 flex-col gap-0 overflow-y-auto border-b
+              border-default py-1
               md:hidden
             "
           >
@@ -949,7 +993,12 @@ onBeforeUnmount(() => {
                                ease: 'easeOut' }"
                 class="flex items-center justify-between gap-2 p-1"
               >
-                <span class="min-w-0 truncate text-sm text-toned">{{ timer.label }}</span>
+                <div class="min-w-0">
+                  <span class="text-xs font-medium text-primary">{{ timer.label }}</span>
+                  <p class="truncate text-sm text-toned">
+                    {{ timer.instruction || timer.label }}
+                  </p>
+                </div>
                 <div class="flex shrink-0 items-center gap-1">
                   <span class="font-semibold text-highlighted tabular-nums">{{ formatTime(timer.remaining) }}</span>
                   <UButton
@@ -998,72 +1047,87 @@ onBeforeUnmount(() => {
       <aside
         class="
           hidden
-          md:flex md:flex-col md:gap-3
+          md:block
         "
       >
         <Motion
           class="
-            sticky top-20 flex flex-col gap-2 rounded-2xl bg-elevated/50 p-3
+            sticky top-5 flex max-h-[calc(100dvh-3rem)] flex-col gap-2
+            overflow-hidden rounded-2xl bg-elevated/70 p-3 shadow-lg ring-1
+            ring-default backdrop-blur-xl
           "
           layout
         >
-          <p class="text-xs font-medium tracking-wide text-toned uppercase">
-            Recipe progress
-          </p>
-          <Motion
-            v-for="(step, index) in recipe.steps"
-            :key="step.id"
-            :class="index === stepIndex ? 'bg-primary/10 text-primary' : `
-              text-toned
-              hover:bg-elevated
-            `"
-            class="flex items-start gap-2 rounded-xl p-2 text-left text-sm"
-            layout
-            @click="stepIndex = index"
-          >
+          <div class="flex items-center justify-between gap-2 px-2 pb-2">
             <span
+              class="text-xs font-semibold tracking-wide text-toned uppercase"
+            >Steps</span>
+            <span class="text-xs text-toned">{{ completedStepIndexes.length }}/{{ recipe.steps.length }}</span>
+          </div>
+          <div class="min-h-0 flex-1 overflow-y-auto overscroll-contain">
+            <button
+              v-for="(step, index) in recipe.steps"
+              :key="step.id"
+              :class="index === stepIndex ? 'bg-primary/12 text-primary' : `
+                text-toned
+                hover:bg-elevated hover:text-highlighted
+              `"
+              type="button"
               class="
-                grid size-5 shrink-0 place-items-center rounded-full border
-                border-current text-xs
+                flex w-full items-start gap-2 rounded-2xl p-2.5 text-left
+                transition-colors
               "
-            >{{ completedStepIndexes.includes(index) ? '✓' : index + 1 }}</span>
-            <span class="line-clamp-2">{{ step.instruction }}</span>
-          </Motion>
+              @click="goToStep(index)"
+            >
+              <span
+                :class="completedStepIndexes.includes(index) ? `
+                  border-primary bg-primary text-inverted
+                ` : `border-current`"
+                class="
+                  grid size-5 shrink-0 place-items-center rounded-full border
+                  text-[0.65rem] font-semibold
+                "
+              >{{ completedStepIndexes.includes(index) ? '✓' : index + 1 }}</span>
+              <span class="line-clamp-3 text-sm/5">{{ formatRecipeInstruction(step.instruction) }}</span>
+            </button>
+          </div>
           <div
             v-if="timerCards.length > 0"
-            class="mt-2 flex flex-col gap-2 border-t border-default pt-3"
+            class="
+              mt-2 flex max-h-32 flex-col gap-2 overflow-y-auto border-t
+              border-default pt-3
+            "
           >
-            <p class="text-xs font-medium tracking-wide text-toned uppercase">
-              Timers
-            </p>
             <div
               v-for="timer in timerCards"
               :key="timer.id"
-              class="
-                flex items-center justify-between rounded-lg bg-elevated px-3
-                py-2
-              "
+              class="flex flex-col gap-1 rounded-xl bg-elevated p-2"
             >
-              <span class="text-sm text-toned">{{ timer.label }}</span>
-              <div class="flex items-center gap-1">
-                <span class="font-semibold text-highlighted tabular-nums">{{ formatTime(timer.remaining) }}</span>
-                <UButton
-                  :icon="timer.paused ? 'i-lucide-play' : 'i-lucide-pause'"
-                  :aria-label="timer.paused ? 'Resume timer' : 'Pause timer'"
-                  color="neutral"
-                  variant="ghost"
-                  size="xs"
-                  @click="toggleTimer(timer.id)"
-                />
-                <UButton
-                  icon="i-lucide-x"
-                  aria-label="Remove timer"
-                  color="neutral"
-                  variant="ghost"
-                  size="xs"
-                  @click="removeTimer(timer.id)"
-                />
+              <div class="flex items-center justify-between gap-2">
+                <span class="text-xs font-medium text-primary">{{ timer.label }}</span>
+                <div class="flex items-center gap-1">
+                  <span class="font-semibold text-highlighted tabular-nums">{{ formatTime(timer.remaining) }}</span>
+                  <UButton
+                    :icon="timer.paused ? 'i-lucide-play' : 'i-lucide-pause'"
+                    :aria-label="timer.paused ? 'Resume timer' : 'Pause timer'"
+                    color="neutral"
+                    variant="ghost"
+                    size="xs"
+                    @click="toggleTimer(timer.id)"
+                  />
+                  <UButton
+                    icon="i-lucide-x"
+                    aria-label="Remove timer"
+                    color="neutral"
+                    variant="ghost"
+                    size="xs"
+                    @click="removeTimer(timer.id)"
+                  />
+                </div>
               </div>
+              <p class="line-clamp-2 text-xs/4 text-toned">
+                {{ timer.instruction || timer.label }}
+              </p>
             </div>
           </div>
         </Motion>
@@ -1183,12 +1247,32 @@ onBeforeUnmount(() => {
                         >optional</span>
                       </div>
                       <div class="flex shrink-0 items-center gap-2">
-                        <span class="font-medium text-highlighted">
+                        <span
+                          v-if="formatAmount(scaledAmount(ingredient.amount), ingredient.unit)"
+                          class="font-medium text-highlighted"
+                        >
                           {{ formatAmount(scaledAmount(ingredient.amount), ingredient.unit) }}
                         </span>
+                        <div
+                          v-if="ingredient.requiresWeight"
+                          class="flex items-center gap-1"
+                        >
+                          <UInput
+                            v-model.number="cookingInput(ingredient).weight"
+                            type="number"
+                            min="0"
+                            step="any"
+                            placeholder="Weight"
+                            size="sm"
+                            class="w-24"
+                            aria-label="Actual weight in grams"
+                          />
+                          <span class="text-sm text-toned">g</span>
+                        </div>
                         <UButton
-                          label="Edit"
-                          icon="i-lucide-pencil"
+                          :label="ingredient.requiresWeight ? undefined : 'Edit'"
+                          :icon="ingredient.requiresWeight ? 'i-lucide-sliders-horizontal' : 'i-lucide-pencil'"
+                          :aria-label="ingredient.requiresWeight ? `Adjust ${ingredient.name}` : `Edit ${ingredient.name}`"
                           color="neutral"
                           variant="ghost"
                           size="sm"
